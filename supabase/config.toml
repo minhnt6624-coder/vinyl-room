@@ -7,3 +7,6 @@ enable_anonymous_sign_ins = true
 
 [functions.youtube-search]
 verify_jwt = true
+
+[functions.lyrics]
+verify_jwt = true

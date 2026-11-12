@@ -23,6 +23,7 @@ const MESSAGES: Record<string, string> = {
   VR_SEARCH_NOT_CONFIGURED: 'Search is not set up on this server yet. Paste a YouTube link instead.',
   VR_SEARCH_QUOTA: "Search has reached today's YouTube limit. Paste a YouTube link instead.",
   VR_SEARCH_FAILED: 'Search is unavailable right now. Paste a YouTube link instead.',
+  VR_LYRICS_FAILED: "Couldn't load the lyrics right now.",
   VR_TRACK_LOOKUP_FAILED: "Couldn't read that link. Check that it points to a single, public track.",
   VR_NETWORK: 'Connection problem. Check your network and try again.',
 };

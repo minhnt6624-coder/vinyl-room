@@ -31,7 +31,8 @@ Browser (React 19 + TypeScript + Vite + Tailwind 4 + Framer Motion)
 Supabase
   Postgres       tables + read-only RLS + SECURITY DEFINER functions for every write
   Realtime       postgres_changes on rooms / room_members / queue_items, presence for "online"
-  Edge Function  youtube-search (holds the YouTube Data API key)
+  Edge Functions youtube-search (holds the YouTube Data API key)
+                 lyrics (LRCLIB lookup, cached in lyrics_cache)
 ```
 
 ### Who is allowed to do what
@@ -142,6 +143,45 @@ npx supabase functions deploy youtube-search
 
 Quota: each search costs 100 units of the default 10,000 per day, so about 100 searches a day. The function caches repeat queries for 10 minutes and search runs on submit, not per keystroke. Request a quota increase from Google before a real launch.
 
+### Lyrics
+
+Synced lyrics come from [LRCLIB](https://lrclib.net) through the `lyrics` Edge Function. There is no UI for them yet; `src/services/lyricsService.ts` is the client side.
+
+Deploy it after the `lyrics_cache` migration has been applied (the function needs the table and `consume_lyrics_quota`):
+
+```bash
+npx supabase db push
+npx supabase functions deploy lyrics
+```
+
+It needs no secret of its own. It reuses `YOUTUBE_API_KEY` when a track has no duration, and writes with the service role key that Supabase gives every Edge Function (`SUPABASE_SERVICE_ROLE_KEY`). If your project does not provide that variable, set it yourself as `SERVICE_ROLE_KEY`; without either, lyrics are still returned but not cached (`"stored": false` in the response).
+
+How a lookup works:
+
+1. The caller must be a member of a room that has the track. The function reads the track with the caller's token, so row level security decides. 30 lookups a minute per person.
+2. If `lyrics_cache` has a row, that is the answer. A "nothing found" row is trusted for 7 days.
+3. If the track has no duration (a pasted link), the function asks YouTube for it (`videos.list`, 1 quota unit) and stores it on the track.
+4. The video title is cleaned ("(Official Video)", "[MV]", "ft. ...", a channel's "- Topic") and read as artist and song in several ways.
+5. LRCLIB is asked with `/api/get`, then `/api/search`, at most 6 requests. The best record wins: synced lyrics within 2 seconds of the track's length, then synced within 10, then plain. A record more than 10 seconds off, or whose name does not match, is never used.
+6. The result is stored. When the duration was unknown, `matched_duration` is left null, and the row is deleted as soon as the host's player reports the duration (`set_track_duration`), so the next lookup can match on length too.
+
+`lyrics_cache` (one row per track, shared by every room that queues it):
+
+| Column | Meaning |
+| --- | --- |
+| `track_id` | Primary key, references `tracks` |
+| `source` | `lrclib`, or `none` when nothing was found |
+| `synced_lrc` | LRC text with timestamps, or null |
+| `plain_lyrics` | Untimed lyrics, or null |
+| `instrumental` | The source marks the track as having no words |
+| `matched_duration` | Length in seconds of the matched record; null if the match was by name alone |
+| `provider_record_id` | LRCLIB's record id |
+| `fetched_at` | When it was looked up |
+
+Clients can only read it, and only for tracks in their rooms. There is no write policy; the function writes with the service role.
+
+`src/lib/lrc.ts` turns `synced_lrc` into `{ timeMs, text }[]`.
+
 ## Local development
 
 Requires Node 20.19 or newer.
@@ -158,7 +198,7 @@ npm run dev                   # http://localhost:5173
 | `npm run typecheck` | TypeScript only |
 | `npm run build` | Typecheck and production build to `dist/` |
 | `npm run preview` | Serve the production build |
-| `npm test` | Unit tests (vitest): server clock, drift policy |
+| `npm test` | Unit tests (vitest): server clock, drift policy, LRC parser, lyrics matching |
 | `npm run test:db` | Migration and permission tests, no Supabase needed |
 
 To try it with several people on one machine, use separate browser profiles or a private window per person. Tabs in the same profile share one anonymous session, so they are the same person.
