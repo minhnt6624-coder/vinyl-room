@@ -32,6 +32,8 @@ Add a row here whenever a file is ported.
 
 - **Lyrics lookup** (`supabase/functions/_shared/lyricsMatch.ts`, `lrclib.ts`, `src/lib/lrc.ts`): choosing an LRCLIB record by name and running time follows the approach of SimpMusic's lyrics service (`selectLrclibLyricsRecord`, `LrcTextParser.kt`). The code is written for this project and its rules differ (a 2 second window before a 10 second one, synced lyrics preferred, a name check, multiple timestamps and `[offset:]` in the parser), so these files carry no upstream header.
 
+- **Lyrics display** (`src/lib/lyricsSync.ts`): treating a sheet whose lines all share one timestamp as unsynced, and applying the listener's timing offset when the position is read rather than to the lyrics, follow SimpMusic's `LyricsView.kt`. The code is written for this project (the offset has the opposite sign, matching LRC's `[offset:]`), so the file carries no upstream header.
+
 ## Services
 
 Lyrics come from [LRCLIB](https://lrclib.net), a free, open lyrics database, and are cached in this project's database.

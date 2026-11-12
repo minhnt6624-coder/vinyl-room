@@ -145,7 +145,11 @@ Quota: each search costs 100 units of the default 10,000 per day, so about 100 s
 
 ### Lyrics
 
-Synced lyrics come from [LRCLIB](https://lrclib.net) through the `lyrics` Edge Function. There is no UI for them yet; `src/services/lyricsService.ts` is the client side.
+Synced lyrics come from [LRCLIB](https://lrclib.net) through the `lyrics` Edge Function. The Lyrics button in the player bar opens them: a column beside the room on wide screens, a sheet on phones, and a full screen view over the record's artwork. The line shown is read from the room's shared timeline, not from the local player, so every listener sees the same one. `±0.5s` nudges the timing for this browser only, per track.
+
+The client (`src/services/lyricsService.ts`) reads `lyrics_cache` directly and calls the function only when there is no usable row. It does so only while the lyrics are open, and fetches the next record's lyrics 20 seconds before the current one ends.
+
+The provider's player is never covered by the lyrics. `LyricsDock` lays the lyrics out around `Screen` instead of putting a layer over it.
 
 Deploy it after the `lyrics_cache` migration has been applied (the function needs the table and `consume_lyrics_quota`):
 
@@ -198,7 +202,7 @@ npm run dev                   # http://localhost:5173
 | `npm run typecheck` | TypeScript only |
 | `npm run build` | Typecheck and production build to `dist/` |
 | `npm run preview` | Serve the production build |
-| `npm test` | Unit tests (vitest): server clock, drift policy, LRC parser, lyrics matching |
+| `npm test` | Unit tests (vitest): server clock, drift policy, LRC parser, lyrics matching, current lyric line and offset |
 | `npm run test:db` | Migration and permission tests, no Supabase needed |
 
 To try it with several people on one machine, use separate browser profiles or a private window per person. Tabs in the same profile share one anonymous session, so they are the same person.

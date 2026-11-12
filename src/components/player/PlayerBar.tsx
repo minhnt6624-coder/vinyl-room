@@ -1,4 +1,4 @@
-import { Headphones, Pause, Play, SkipBack, SkipForward, Volume2, VolumeX } from 'lucide-react';
+import { Headphones, MicVocal, Pause, Play, SkipBack, SkipForward, Volume2, VolumeX } from 'lucide-react';
 import { useState, type CSSProperties } from 'react';
 import { useNow } from '../../hooks/useNow';
 import { expectedPosition, formatTime, spineColor } from '../../lib/format';
@@ -15,13 +15,15 @@ interface Props {
   clockOffset: number;
   player: PlayerHandle;
   actions: RoomActions;
+  lyricsOpen: boolean;
+  onToggleLyrics(): void;
 }
 
 /**
  * The floating player. It shows the room's shared playback state; only the
  * host gets transport controls. Volume is always local to this listener.
  */
-export function PlayerBar({ room, item, isHost, hasUpNext, clockOffset, player, actions }: Props) {
+export function PlayerBar({ room, item, isHost, hasUpNext, clockOffset, player, actions, lyricsOpen, onToggleLyrics }: Props) {
   const playing = room.playback_status === 'playing';
   const provider = item ? getProvider(item.track.provider) : null;
   const synced = provider?.capabilities.syncedPlayback ?? false;
@@ -117,8 +119,11 @@ export function PlayerBar({ room, item, isHost, hasUpNext, clockOffset, player, 
         )}
       </div>
 
-      {/* volume: local to this listener */}
+      {/* lyrics, and volume: local to this listener */}
       <div className="flex flex-none items-center gap-1">
+        <button className={`icon-btn ${lyricsOpen ? 'bg-ink/10 text-indigo' : ''}`} onClick={onToggleLyrics} disabled={!item} aria-label="Lyrics" aria-pressed={lyricsOpen} title="Lyrics">
+          <MicVocal size={18} />
+        </button>
         <button className="icon-btn" onClick={player.toggleMute} aria-label={audible ? 'Mute (only for you)' : 'Unmute'} aria-pressed={!audible}>
           {audible ? <Volume2 size={18} /> : <VolumeX size={18} />}
         </button>

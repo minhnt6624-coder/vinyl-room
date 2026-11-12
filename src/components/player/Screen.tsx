@@ -5,7 +5,8 @@ import type { PlayerHandle, QueueItem } from '../../types';
 /**
  * Where the provider's own player lives. YouTube's terms require its player
  * to stay visible (and at least 200x200) while it plays, so this is a real
- * part of the room rather than something hidden off-screen.
+ * part of the room rather than something hidden off-screen. Where it sits is
+ * decided by LyricsDock, which wraps it.
  */
 export function Screen({ item, player }: { item: QueueItem | null; player: PlayerHandle }) {
   const provider = item ? getProvider(item.track.provider) : null;
@@ -13,10 +14,7 @@ export function Screen({ item, player }: { item: QueueItem | null; player: Playe
   const embedUrl = item && provider && !isYouTube ? provider.getEmbedUrl(item.track) : null;
 
   return (
-    <aside
-      className={`mx-auto mt-5 w-full max-w-[340px] xl:fixed xl:bottom-5 xl:right-5 xl:z-30 xl:m-0 xl:w-[300px] ${item ? '' : 'hidden'}`}
-      aria-label="Player"
-    >
+    <aside className={`mx-auto w-full max-w-[340px] ${item ? '' : 'hidden'}`} aria-label="Player">
       <div className="card overflow-hidden rounded-2xl p-1.5">
         <div className="relative h-[200px] overflow-hidden rounded-xl bg-ink">
           {/* The YouTube IFrame API mounts here. Kept in the DOM so the player survives track changes. */}

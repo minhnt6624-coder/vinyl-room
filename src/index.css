@@ -643,6 +643,42 @@ button:disabled {
   100% { transform: translate3d(var(--dx, 0px), -240px, 0) scale(1); opacity: 0; }
 }
 
+/* ------------------------------------------------------------------ lyrics
+   The line being sung is full size and full strength; the ones around it are
+   drawn smaller with a transform, so a line never re-wraps as it takes over. */
+
+.lyrics-scroll {
+  outline-offset: -2px;
+}
+/* Lines dissolve into the panel's edges instead of being cut by them. */
+.lyrics-fade {
+  container-type: size;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 16%, #000 84%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 16%, #000 84%, transparent 100%);
+}
+/* Half the panel of room above and below, so the first and last line can reach the middle. */
+.lyrics-lines {
+  padding-block: 50cqh;
+}
+.lyric-line {
+  padding: 0.26em 0;
+  line-height: 1.1;
+  font-weight: 500;
+  opacity: 0.5;
+  transform: scale(0.86);
+  transform-origin: left center;
+  transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+  cursor: default;
+}
+.lyric-line.is-past {
+  opacity: 0.24;
+}
+.lyric-line.is-current {
+  opacity: 1;
+  font-weight: 600;
+  transform: none;
+}
+
 .yt-mount > iframe,
 .yt-mount > div {
   position: absolute;
@@ -664,5 +700,8 @@ button:disabled {
   }
   .float-reaction {
     animation-duration: 0.01s;
+  }
+  .lyric-line {
+    transition: none;
   }
 }
