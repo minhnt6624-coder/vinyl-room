@@ -163,9 +163,12 @@ It needs no secret of its own. It reuses `YOUTUBE_API_KEY` when a track has no d
 How a lookup works:
 
 1. The caller must be a member of a room that has the track. The function reads the track with the caller's token, so row level security decides. 30 lookups a minute per person.
-2. If `lyrics_cache` has a row, that is the answer. A "nothing found" row is trusted for 7 days.
-3. If the track has no duration (a pasted link), the function asks YouTube for it (`videos.list`, 1 quota unit) and stores it on the track.
-4. The video title is cleaned ("(Official Video)", "[MV]", "ft. ...", a channel's "- Topic") and read as artist and song in several ways.
+2. If `lyrics_cache` has a row, that is the answer. A "nothing found" row is trusted for 7 days, unless it was recorded for a Spotify track whose artist was still unknown.
+3. What the track row lacks is filled in and stored on the track, depending on the provider:
+   - **YouTube:** a missing duration (a pasted link) is asked from `videos.list` (1 quota unit). No other provider triggers this call.
+   - **Spotify:** a pasted link is stored with a title only, because Spotify's oEmbed returns neither artist nor duration. Both are read from the official embed page (`_shared/spotifyMeta.ts`). If that fails the track cannot be matched, and the miss is not cached.
+   - **SoundCloud:** title and uploader are used as stored. No duration is available, so the match is by name alone.
+4. The names are turned into queries. A YouTube or SoundCloud title is cleaned ("(Official Video)", "[MV]", "ft. ...", a channel's "- Topic") and read as artist and song in several ways. A Spotify title is taken as the song and its artist as the artist; only a version suffix ("- Remastered 2011") and guest credits are removed.
 5. LRCLIB is asked with `/api/get`, then `/api/search`, at most 6 requests. The best record wins: synced lyrics within 2 seconds of the track's length, then synced within 10, then plain. A record more than 10 seconds off, or whose name does not match, is never used.
 6. The result is stored. When the duration was unknown, `matched_duration` is left null, and the row is deleted as soon as the host's player reports the duration (`set_track_duration`), so the next lookup can match on length too.
 

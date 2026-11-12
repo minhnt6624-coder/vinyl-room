@@ -1,5 +1,6 @@
 // Tests for the matching logic the `lyrics` Edge Function runs.
 import { describe, expect, it } from 'vitest';
+import { parseSpotifyEmbed } from '../../supabase/functions/_shared/spotifyMeta';
 import { buildQueries, cleanArtist, fold, selectRecord, similarity, titleSegments, type LrclibRecord, type NameQuery } from '../../supabase/functions/_shared/lyricsMatch';
 
 let nextId = 1;
@@ -176,5 +177,79 @@ describe('selectRecord', () => {
   });
   it('returns null for no records', () => {
     expect(selectRecord([], q, 355)).toBeNull();
+  });
+});
+
+describe('buildQueries, structured (Spotify metadata)', () => {
+  const q = (title: string, artist: string | null) => buildQueries(title, artist, { structured: true });
+
+  it('takes the title as the song and the artist as the artist', () => {
+    expect(q('Shape of You', 'Ed Sheeran')).toEqual([{ title: 'Shape of You', artist: 'Ed Sheeran' }]);
+  });
+
+  it('never reads "Song - Version" as "Artist - Song"', () => {
+    const qs = q('Bohemian Rhapsody - Remastered 2011', 'Queen');
+    expect(qs[0]).toEqual({ title: 'Bohemian Rhapsody', artist: 'Queen' });
+    expect(qs[1]).toEqual({ title: 'Bohemian Rhapsody - Remastered 2011', artist: 'Queen' });
+    expect(qs.every((x) => x.artist === 'Queen')).toBe(true);
+    // The YouTube reading of the same pair would put the version first.
+    expect(buildQueries('Bohemian Rhapsody - Remastered 2011', 'Queen')[0].title).toBe('Remastered 2011');
+  });
+
+  it('drops a guest credit from the title and tries the lead artist alone', () => {
+    const qs = q('Señorita (feat. Camila Cabello)', 'Shawn Mendes, Camila Cabello');
+    expect(qs.slice(0, 2)).toEqual([
+      { title: 'Señorita', artist: 'Shawn Mendes, Camila Cabello' },
+      { title: 'Señorita', artist: 'Shawn Mendes' },
+    ]);
+  });
+
+  it('keeps a band name that contains a comma as its first reading', () => {
+    expect(q('September', 'Earth, Wind & Fire')[0]).toEqual({ title: 'September', artist: 'Earth, Wind & Fire' });
+  });
+
+  it('keeps brackets that are part of the name, then tries without them', () => {
+    const qs = q('Thinking out Loud (Acoustic)', 'Ed Sheeran').map((x) => x.title);
+    expect(qs).toEqual(['Thinking out Loud (Acoustic)', 'Thinking out Loud']);
+  });
+
+  it('falls back to the title alone when there is no artist', () => {
+    expect(q('Mr. Brightside', null)).toEqual([{ title: 'Mr. Brightside', artist: null }]);
+  });
+
+  it('a title-only track is never matched without a duration, but is with artist and duration', () => {
+    const records = [rec('Mr. Brightside', 'The Killers', 222, { syncedLyrics: '[00:01.00]Coming out of my cage' })];
+    expect(selectRecord(records, q('Mr. Brightside', null), null)).toBeNull();
+    expect(selectRecord(records, q('Mr. Brightside', 'The Killers'), 222)?.record.id).toBe(records[0].id);
+    // A live cut 40 seconds longer is a different recording.
+    expect(selectRecord([rec('Mr. Brightside', 'The Killers', 262, { syncedLyrics: '[00:01.00]x' })], q('Mr. Brightside', 'The Killers'), 222)).toBeNull();
+  });
+});
+
+describe('parseSpotifyEmbed', () => {
+  const page = (entity: unknown) =>
+    `<!DOCTYPE html><html><body><div id="__next"></div><script id="__NEXT_DATA__" type="application/json">${JSON.stringify({
+      props: { pageProps: { state: { data: { entity } } } },
+    })}</script></body></html>`;
+
+  it('reads the artists in order and the duration in seconds', () => {
+    expect(parseSpotifyEmbed(page({ type: 'track', name: 'Never Gonna Give You Up', artists: [{ name: 'Rick Astley', uri: 'spotify:artist:x' }], duration: 213573 }))).toEqual({
+      artists: ['Rick Astley'],
+      durationSeconds: 214,
+    });
+    expect(parseSpotifyEmbed(page({ name: 'Señorita', artists: [{ name: 'Shawn Mendes' }, { name: ' Camila Cabello ' }], duration: 190960 }))?.artists).toEqual(['Shawn Mendes', 'Camila Cabello']);
+  });
+
+  it('accepts a page with only one of the two', () => {
+    expect(parseSpotifyEmbed(page({ artists: [{ name: 'Queen' }] }))).toEqual({ artists: ['Queen'], durationSeconds: null });
+    expect(parseSpotifyEmbed(page({ artists: [], duration: 60000 }))).toEqual({ artists: [], durationSeconds: 60 });
+  });
+
+  it('is null for anything it cannot read', () => {
+    expect(parseSpotifyEmbed('')).toBeNull();
+    expect(parseSpotifyEmbed('<html><body>Page not found</body></html>')).toBeNull();
+    expect(parseSpotifyEmbed('<script id="__NEXT_DATA__" type="application/json">{not json</script>')).toBeNull();
+    expect(parseSpotifyEmbed(page({ name: 'An episode', duration: 'long' }))).toBeNull();
+    expect(parseSpotifyEmbed(page({ artists: [{ name: '' }, {}], duration: 0 }))).toBeNull();
   });
 });

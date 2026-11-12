@@ -36,7 +36,7 @@ export interface TrackLyrics {
   cached: boolean;
 }
 
-type TrackRef = Pick<Track, 'id' | 'duration_seconds'>;
+type TrackRef = Pick<Track, 'id' | 'provider' | 'artist' | 'duration_seconds'>;
 
 // The Edge Function looks a miss up again after this long; so does the client.
 const NOT_FOUND_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -70,8 +70,8 @@ export const lyricsService = {
 
   /**
    * The cached row, read straight from the table (members of a room that has
-   * the track may read it). Null when there is no row, or only a miss old
-   * enough to be looked up again.
+   * the track may read it). Null when there is no row, or only a miss that
+   * should be looked up again.
    */
   async read(track: TrackRef): Promise<TrackLyrics | null> {
     await ensureSession();
@@ -82,7 +82,12 @@ export const lyricsService = {
       .maybeSingle<CacheRow>();
     if (error) throw AppError.from(error);
     if (!data) return null;
-    if (data.source === 'none' && Date.now() - Date.parse(data.fetched_at) >= NOT_FOUND_TTL_MS) return null;
+    if (data.source === 'none') {
+      if (Date.now() - Date.parse(data.fetched_at) >= NOT_FOUND_TTL_MS) return null;
+      // A Spotify link is stored with a title only until the Edge Function
+      // has looked up its artist. A miss from before that is not an answer.
+      if (track.provider === 'spotify' && track.artist === null) return null;
+    }
     // Same reading of the row as the Edge Function's.
     const status = data.source === 'none' ? 'not_found' : data.instrumental && !data.synced_lrc && !data.plain_lyrics ? 'instrumental' : 'found';
     return {

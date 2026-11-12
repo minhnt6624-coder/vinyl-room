@@ -96,10 +96,11 @@ const stripBrackets = (s: string) => squeeze(s.replace(BRACKETS, ' '));
  * first. A video title may be "Artist - Song", "Song", "Artist 'Song' MV" or
  * "ARTIST | SONG | OFFICIAL MUSIC VIDEO", and the channel may be the artist
  * or a label, so several readings are tried.
+ *
+ * With `structured` the pair comes from a music service (Spotify) rather than
+ * from a video: see the branch below.
  */
-export function buildQueries(rawTitle: string, channel: string | null | undefined): NameQuery[] {
-  const segments = titleSegments(rawTitle);
-  const channelArtist = cleanArtist(channel);
+export function buildQueries(rawTitle: string, channel: string | null | undefined, opts: { structured?: boolean } = {}): NameQuery[] {
   const out: NameQuery[] = [];
   const seen = new Set<string>();
   const add = (title: string | undefined, artist: string | null | undefined) => {
@@ -111,6 +112,30 @@ export function buildQueries(rawTitle: string, channel: string | null | undefine
     seen.add(key);
     out.push({ title: t, artist: a && a.length ? a : null });
   };
+
+  if (opts.structured) {
+    // A music service's own metadata: the title is the song and the artist is
+    // the artist. Nothing is guessed from the title's shape; only the version
+    // suffix Spotify appends ("Song - Remastered 2011", "Song - Radio Edit")
+    // and guest credits are peeled off.
+    const whole = squeeze(rawTitle.normalize('NFC'));
+    const song = titleSegments(rawTitle)[0] ?? whole;
+    const full = channel ? squeeze(channel.normalize('NFC')) : null;
+    // "Artist, Guest": the first name alone is what most databases file it under.
+    const lead = full && full.includes(',') ? squeeze(full.split(',')[0]) : null;
+    const artists = [full, lead].filter((a): a is string => Boolean(a));
+    for (const artist of artists) add(song, artist);
+    for (const artist of artists) add(whole, artist);
+    for (const artist of artists) add(stripBrackets(song), artist);
+    if (artists.length === 0) {
+      add(song, null);
+      add(whole, null);
+    }
+    return out;
+  }
+
+  const segments = titleSegments(rawTitle);
+  const channelArtist = cleanArtist(channel);
 
   const first = segments[0] ?? squeeze(rawTitle);
   // K-pop style: NewJeans (뉴진스) 'Hype Boy' Official MV

@@ -20,20 +20,22 @@ export function useLyrics(track: Track | null, enabled: boolean): { phase: Lyric
   const [attempt, setAttempt] = useState(0);
 
   const id = track?.id ?? null;
+  const provider = track?.provider ?? null;
+  const artist = track?.artist ?? null;
   const duration = track?.duration_seconds ?? null;
   const key = id ? `${id}:${duration ?? ''}:${attempt}` : null;
 
   useEffect(() => {
-    if (!enabled || !id || !key) return;
+    if (!enabled || !id || !provider || !key) return;
     let alive = true;
     lyricsService
-      .load({ id, duration_seconds: duration })
+      .load({ id, provider, artist, duration_seconds: duration })
       .then((lyrics) => alive && setLoaded({ key, lyrics, failed: false }))
       .catch(() => alive && setLoaded({ key, lyrics: null, failed: true }));
     return () => {
       alive = false;
     };
-  }, [enabled, id, duration, key]);
+  }, [enabled, id, provider, artist, duration, key]);
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
@@ -56,12 +58,14 @@ const PREFETCH_BEFORE_END_S = 20;
  */
 export function usePrefetchLyrics(room: Room, next: Track | null, duration: number | null, clockOffset: number, enabled: boolean): void {
   const nextId = next?.id ?? null;
+  const nextProvider = next?.provider ?? null;
+  const nextArtist = next?.artist ?? null;
   const nextDuration = next?.duration_seconds ?? null;
   const { playback_status: status, playback_position: position, playback_started_at: startedAt } = room;
 
   useEffect(() => {
-    if (!enabled || !nextId) return;
-    const fetchNext = () => void lyricsService.load({ id: nextId, duration_seconds: nextDuration }).catch(() => {});
+    if (!enabled || !nextId || !nextProvider) return;
+    const fetchNext = () => void lyricsService.load({ id: nextId, provider: nextProvider, artist: nextArtist, duration_seconds: nextDuration }).catch(() => {});
     if (duration === null) {
       fetchNext();
       return;
@@ -74,5 +78,5 @@ export function usePrefetchLyrics(room: Room, next: Track | null, duration: numb
     if (status !== 'playing') return; // a paused record gets no closer to its end
     const timer = window.setTimeout(fetchNext, untilWindow * 1000);
     return () => window.clearTimeout(timer);
-  }, [enabled, nextId, nextDuration, duration, status, position, startedAt, clockOffset]);
+  }, [enabled, nextId, nextProvider, nextArtist, nextDuration, duration, status, position, startedAt, clockOffset]);
 }

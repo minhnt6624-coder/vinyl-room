@@ -6,6 +6,14 @@
 //   200 { error: "rate_limited" | "upstream_error" }
 //   401 not signed in · 404 the caller is not in a room that has this track
 //
+// Per provider:
+//   youtube     title + channel are cleaned up; a missing duration is asked
+//               from videos.list (YouTube only).
+//   spotify     the pasted link carries a title only, so artist and duration
+//               are read from the official embed page and kept on the track.
+//   soundcloud  title + uploader as stored; no duration is available, so the
+//               match is by name alone.
+//
 // Who may call it: the track row is read WITH THE CALLER'S TOKEN, so row level
 // security decides. Only a member of a room that has the track gets a row back.
 // The gateway's verify_jwt lets the public key through, so nothing here trusts it.
@@ -15,6 +23,7 @@
 // lyrics are still returned, just not stored.
 
 import { findLyrics } from '../_shared/lrclib.ts';
+import { spotifyTrackMeta } from '../_shared/spotifyMeta.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -129,12 +138,42 @@ Deno.serve(async (req) => {
 
     const cacheRes = await fetch(`${rest}/lyrics_cache?track_id=eq.${trackId}&select=*`, { headers: asCaller });
     const hit = cacheRes.ok ? ((await cacheRes.json()) as CacheRow[])[0] : undefined;
-    if (hit && (hit.source !== 'none' || Date.now() - Date.parse(hit.fetched_at) < NOT_FOUND_TTL_MS)) {
-      return respond(hit, track, true, true);
-    }
+    // A pasted Spotify link arrives with a title only (see spotifyMeta.ts). A
+    // miss recorded while the artist was still unknown was never a real lookup.
+    const unidentified = track.provider === 'spotify' && track.artist === null;
+    const fresh = hit !== undefined && (hit.source !== 'none' || (!unidentified && Date.now() - Date.parse(hit.fetched_at) < NOT_FOUND_TTL_MS));
+    if (hit && fresh) return respond(hit, track, true, true);
 
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('SERVICE_ROLE_KEY');
     const asService = serviceKey ? { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json' } : null;
+
+    // Fill in what the track row lacks, and keep it. Each column is written
+    // only where it is still null, so nothing a client stored is replaced.
+    const keep = async (column: 'artist' | 'duration_seconds', value: string | number) => {
+      if (!asService) return;
+      const upd = await fetch(`${rest}/tracks?id=eq.${trackId}&${column}=is.null`, {
+        method: 'PATCH',
+        headers: { ...asService, Prefer: 'return=minimal' },
+        body: JSON.stringify({ [column]: value }),
+      });
+      if (!upd.ok) console.error(`${column} write failed`, upd.status, await upd.text());
+    };
+
+    // Spotify: artist and running time from the official embed page.
+    let identified = !unidentified;
+    if (track.provider === 'spotify' && (track.artist === null || track.duration_seconds === null)) {
+      const meta = await spotifyTrackMeta(track.provider_track_id);
+      if (!meta) console.error('spotify metadata unavailable for', track.provider_track_id);
+      if (meta && track.artist === null && meta.artists.length > 0) {
+        track.artist = meta.artists.join(', ').slice(0, 200);
+        identified = true;
+        await keep('artist', track.artist);
+      }
+      if (meta && track.duration_seconds === null && meta.durationSeconds !== null) {
+        track.duration_seconds = meta.durationSeconds;
+        await keep('duration_seconds', meta.durationSeconds);
+      }
+    }
 
     // A pasted link has no duration until the host plays it. Ask YouTube (1 unit) and keep the answer.
     const youtubeKey = Deno.env.get('YOUTUBE_API_KEY');
@@ -142,18 +181,13 @@ Deno.serve(async (req) => {
       const seconds = await youtubeDuration(track.provider_track_id, youtubeKey);
       if (seconds !== null) {
         track.duration_seconds = seconds;
-        if (asService) {
-          const upd = await fetch(`${rest}/tracks?id=eq.${trackId}&duration_seconds=is.null`, {
-            method: 'PATCH',
-            headers: { ...asService, Prefer: 'return=minimal' },
-            body: JSON.stringify({ duration_seconds: seconds }),
-          });
-          if (!upd.ok) console.error('duration write failed', upd.status, await upd.text());
-        }
+        await keep('duration_seconds', seconds);
       }
     }
 
-    const found = await findLyrics(track.title, track.artist, track.duration_seconds);
+    // Spotify's title and artist are the song's own; YouTube's and SoundCloud's
+    // are an uploader's wording and are read the looser way.
+    const found = await findLyrics(track.title, track.artist, track.duration_seconds, { structured: track.provider === 'spotify' });
     console.log(`lyrics ${trackId} "${track.title}" -> ${found.status}${found.matchedName ? ` (${found.matchedName})` : ''}; ${found.attempts.join('; ')}`);
 
     const row: CacheRow = {
@@ -170,7 +204,11 @@ Deno.serve(async (req) => {
     };
 
     let stored = false;
-    if (asService) {
+    if (found.status === 'not_found' && !identified) {
+      // Nothing could be matched because the track is still only a title.
+      // Not cached, so the next request tries the metadata again.
+      console.error('not caching a miss for an unidentified track', trackId);
+    } else if (asService) {
       const put = await fetch(`${rest}/lyrics_cache?on_conflict=track_id`, {
         method: 'POST',
         headers: { ...asService, Prefer: 'resolution=merge-duplicates,return=minimal' },

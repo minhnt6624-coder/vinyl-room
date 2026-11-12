@@ -28,6 +28,8 @@ export interface LyricsLookup {
 
 interface Options {
   fetch?: typeof fetch;
+  /** Title and artist come from a music service's metadata, not from a video title and channel. */
+  structured?: boolean;
 }
 
 function isRecord(x: unknown): x is LrclibRecord {
@@ -35,7 +37,9 @@ function isRecord(x: unknown): x is LrclibRecord {
 }
 
 /**
- * Finds lyrics for a track described the way YouTube describes it.
+ * Finds lyrics for a track described the way YouTube describes it (a video
+ * title and a channel), or, with `structured`, by a music service's own title
+ * and artist.
  *
  * 1. /get with the best (title, artist) readings and the duration: one exact record.
  * 2. /search by title and artist.
@@ -49,7 +53,7 @@ function isRecord(x: unknown): x is LrclibRecord {
  */
 export async function findLyrics(rawTitle: string, channel: string | null, duration: number | null, opts: Options = {}): Promise<LyricsLookup> {
   const doFetch = opts.fetch ?? fetch;
-  const queries = buildQueries(rawTitle, channel);
+  const queries = buildQueries(rawTitle, channel, { structured: opts.structured });
   const attempts: string[] = [];
   const pool = new Map<number, LrclibRecord>();
   let requests = 0;
