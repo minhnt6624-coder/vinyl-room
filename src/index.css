@@ -1,0 +1,668 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-ink: #2a2019;
+  --color-ink-soft: #6a584a;
+  --color-paper: #f8f1e4;
+  --color-cream: #fffaf0;
+  --color-indigo: #2f4b9a;
+  --color-vermilion: #c8482c;
+  --color-moss: #56795a;
+  --color-line: rgb(42 32 25 / 0.16);
+
+  --font-display: 'Cormorant Garamond', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+  --font-sans: 'Be Vietnam Pro', ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
+
+  --shadow-float: 0 10px 30px -8px rgb(70 40 15 / 0.35), 0 2px 6px rgb(70 40 15 / 0.12);
+  --shadow-soft: 0 4px 14px -4px rgb(70 40 15 / 0.25);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #f3e7d3;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+button,
+[role='button'] {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-indigo);
+  outline-offset: 2px;
+}
+
+/* Small-caps, letter-spaced labels used all over the room. */
+.eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+/* ------------------------------------------------------------------ backdrop */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: linear-gradient(180deg, #d6e6ec 0%, #e9eee2 26%, #f7eeda 52%, #f6e3c2 100%);
+}
+.backdrop-sun {
+  position: absolute;
+  right: 6%;
+  top: -14%;
+  width: 62vmin;
+  height: 62vmin;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(255 252 240 / 0.95) 0%, rgb(255 240 205 / 0.55) 38%, transparent 70%);
+  filter: blur(14px);
+}
+.backdrop-bokeh {
+  position: absolute;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.5);
+  filter: blur(10px);
+  animation: drift 16s ease-in-out infinite alternate;
+}
+.grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.22;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.35 0 0 0 0 0.25 0 0 0 0 0.15 0 0 0 0.55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+/* The sunlit console the records stand on. */
+.ground {
+  position: relative;
+  background: linear-gradient(180deg, #ecd3ac 0%, #e6c193 55%, #dcae7b 100%);
+}
+.ground::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 60% 90% at 50% 0%, rgb(255 246 222 / 0.75), transparent 70%);
+}
+
+@keyframes drift {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(18px, -22px, 0); }
+}
+
+/* ------------------------------------------------------------------- shelf
+   Records are 3D boxes: a cover, a back and two spines. Side records turn
+   towards the centre so you read their spines like a bookshelf; the selected
+   one faces you and lets its disc slide out. Sizes come from --s (sleeve
+   edge) and --t (spine thickness), set by VinylShelf from the space it has. */
+
+.shelf {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  perspective: 1500px;
+  perspective-origin: 50% 40%;
+  overflow-x: clip;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  outline: none;
+}
+.shelf-stage {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+}
+.shelf-plank {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 22px;
+  background: linear-gradient(180deg, #c99665 0%, #b07a48 22%, #96602f 100%);
+  box-shadow: 0 -1px 0 rgb(255 235 200 / 0.6) inset, 0 12px 26px -6px rgb(90 50 15 / 0.45);
+}
+
+.record {
+  position: absolute;
+  left: calc(var(--s) / -2);
+  bottom: 0;
+  width: var(--s);
+  height: var(--s);
+  transform-style: preserve-3d;
+  transition: transform 0.75s cubic-bezier(0.2, 0.8, 0.2, 1);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.record-lift {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@media (hover: hover) {
+  .record:not(.is-selected):hover .record-lift {
+    transform: translate3d(0, -3%, 46px) scale(1.03);
+  }
+}
+.record:focus-visible .record-front {
+  outline: 3px solid var(--color-indigo);
+  outline-offset: 3px;
+}
+
+.record-front,
+.record-back {
+  position: absolute;
+  inset: 0;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--c);
+}
+.record-front {
+  transform: translateZ(calc(var(--t) / 2));
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.14);
+}
+.record-front::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* paper sheen + the ring a disc wears into its sleeve */
+  background:
+    linear-gradient(115deg, rgb(255 255 255 / 0.22) 0%, transparent 34%, transparent 70%, rgb(0 0 0 / 0.16) 100%),
+    radial-gradient(circle at 50% 50%, transparent 43%, rgb(255 255 255 / 0.07) 45%, transparent 47%);
+  transition: background-color 0.5s;
+}
+.record:not(.is-selected) .record-front::after {
+  background-color: rgb(50 30 12 / 0.2);
+}
+.record-back {
+  transform: translateZ(calc(var(--t) / -2)) rotateY(180deg);
+  background: color-mix(in srgb, var(--c) 72%, #1a120c);
+}
+
+.record-spine {
+  position: absolute;
+  top: 0;
+  width: var(--t);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6%;
+  padding: 9% 0 7%;
+  overflow: hidden;
+  color: #fff7e6;
+  background:
+    linear-gradient(90deg, rgb(0 0 0 / 0.22) 0%, transparent 18%, transparent 80%, rgb(0 0 0 / 0.26) 100%),
+    var(--c);
+}
+.record-spine.left {
+  left: calc(var(--t) / -2);
+  transform: rotateY(-90deg);
+}
+.record-spine.right {
+  left: calc(var(--s) - var(--t) / 2);
+  transform: rotateY(90deg);
+}
+.spine-thumb {
+  position: relative;
+  flex: none;
+  width: 76%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 1px solid rgb(255 247 230 / 0.55);
+  background: rgb(0 0 0 / 0.2);
+}
+.spine-title {
+  flex: 1;
+  min-height: 0;
+  writing-mode: vertical-rl;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: calc(var(--t) * 0.5);
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.spine-tag {
+  flex: none;
+  min-width: 70%;
+  padding: 2px 1px;
+  border: 1px solid rgb(255 247 230 / 0.7);
+  text-align: center;
+  font-size: calc(var(--t) * 0.24);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+}
+.record.is-playing .spine-tag {
+  background: #fff7e6;
+  color: var(--c);
+}
+
+.record-shadow {
+  position: absolute;
+  left: -12%;
+  top: 100%;
+  width: 124%;
+  height: calc(var(--s) * 0.5);
+  transform-origin: 50% 0;
+  transform: rotateX(90deg) translateY(-50%);
+  background: radial-gradient(ellipse at center, rgb(70 38 10 / 0.42) 0%, transparent 68%);
+  pointer-events: none;
+}
+
+.record-disc {
+  position: absolute;
+  left: 3%;
+  top: 3%;
+  width: 94%;
+  height: 94%;
+  border-radius: 50%;
+  transform: translateY(-5%);
+  transition: transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.record.is-selected .record-disc {
+  transform: translateX(46%);
+}
+.disc {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px #0d0a08, 0 6px 18px rgb(40 20 5 / 0.45);
+}
+.disc-spin {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: repeating-radial-gradient(circle, #171210 0 1.1px, #2b2420 1.1px 2.6px);
+  animation: spin 5.5s linear infinite;
+  animation-play-state: paused;
+}
+.disc.is-spinning .disc-spin {
+  animation-play-state: running;
+}
+/* Light stays put while the grooves turn. */
+.disc::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  background: conic-gradient(
+    from 25deg,
+    transparent 0 6%, rgb(255 255 255 / 0.2) 13%, transparent 21% 50%,
+    rgb(255 255 255 / 0.14) 62%, transparent 72% 100%
+  );
+}
+.disc-label {
+  position: absolute;
+  inset: 31%;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--c);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.5), inset 0 0 0 2px rgb(255 255 255 / 0.18);
+}
+.disc-hole {
+  position: absolute;
+  inset: 47.5%;
+  border-radius: 50%;
+  background: #efe3cf;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.4);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Blank sleeves shown while the crate is empty. */
+.record.is-ghost .record-front,
+.record.is-ghost .record-spine {
+  background: #d9c3a0;
+  color: #7c6245;
+}
+.record.is-ghost .record-back {
+  background: #b89f7a;
+}
+
+/* Cover art. YouTube thumbnails are 4:3 frames with a 16:9 picture inside,
+   so they are scaled until the picture itself fills the square sleeve. */
+.art-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.art-img.is-letterboxed {
+  inset: auto;
+  left: 50%;
+  top: 50%;
+  width: auto;
+  max-width: none;
+  height: 134%;
+  transform: translate(-50%, -50%);
+}
+.art-fallback {
+  position: absolute;
+  inset: 0;
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 9%;
+  color: #fff7e6;
+  background:
+    radial-gradient(circle at 72% 30%, transparent 0 17%, rgb(255 247 230 / 0.16) 17.5% 18.5%, transparent 19% 27%, rgb(255 247 230 / 0.12) 27.5% 28.5%, transparent 29% 37%, rgb(255 247 230 / 0.08) 37.5% 38.5%, transparent 39%),
+    linear-gradient(160deg, rgb(255 255 255 / 0.12), rgb(0 0 0 / 0.22)),
+    var(--c);
+}
+.art-fallback-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 13cqw;
+  line-height: 0.95;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.art-fallback-artist {
+  margin-top: 5cqw;
+  font-size: 5cqw;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sleeve-sticker {
+  position: absolute;
+  right: 5%;
+  top: 5%;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #fff7e6;
+  color: var(--color-ink);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.3);
+}
+
+/* Equaliser bars: the "this is playing" mark. */
+.eq {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 11px;
+}
+.eq i {
+  width: 2.5px;
+  height: 100%;
+  background: currentColor;
+  transform-origin: bottom;
+  transform: scaleY(0.35);
+}
+.eq.is-on i {
+  animation: eq 0.9s ease-in-out infinite alternate;
+}
+.eq i:nth-child(2) { animation-delay: -0.35s; }
+.eq i:nth-child(3) { animation-delay: -0.6s; }
+@keyframes eq {
+  from { transform: scaleY(0.25); }
+  to { transform: scaleY(1); }
+}
+
+/* -------------------------------------------------------------- UI pieces */
+
+.tabs {
+  display: inline-flex;
+  border: 1.5px solid var(--color-ink);
+  background: rgb(255 250 240 / 0.55);
+}
+.tabs button {
+  padding: 7px 16px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: background-color 0.2s, color 0.2s;
+}
+.tabs button + button {
+  border-left: 1.5px solid var(--color-ink);
+}
+.tabs button[aria-pressed='true'],
+.tabs button[aria-selected='true'] {
+  background: var(--color-indigo);
+  color: #fff;
+}
+@media (hover: hover) {
+  .tabs button:not([aria-pressed='true']):not([aria-selected='true']):hover {
+    background: rgb(47 75 154 / 0.1);
+  }
+}
+@media (max-width: 560px) {
+  .tabs button {
+    padding: 7px 9px;
+    font-size: 0.625rem;
+    letter-spacing: 0.08em;
+  }
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 18px;
+  border-radius: 999px;
+  background: rgb(255 250 240 / 0.92);
+  box-shadow: var(--shadow-soft);
+  font-size: 0.875rem;
+  transition: transform 0.15s, background-color 0.2s, box-shadow 0.2s;
+}
+.pill:active {
+  transform: scale(0.97);
+}
+@media (hover: hover) {
+  .pill:hover {
+    background: #fff;
+  }
+}
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 999px;
+  transition: background-color 0.2s, transform 0.15s, opacity 0.2s;
+}
+.icon-btn:active {
+  transform: scale(0.92);
+}
+.icon-btn:disabled {
+  opacity: 0.35;
+}
+@media (hover: hover) {
+  .icon-btn:not(:disabled):hover {
+    background: rgb(42 32 25 / 0.09);
+  }
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0 22px;
+  border: 1.5px solid var(--color-ink);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transition: background-color 0.2s, color 0.2s, opacity 0.2s, transform 0.15s;
+}
+.btn:active {
+  transform: scale(0.98);
+}
+.btn:disabled {
+  opacity: 0.45;
+}
+.btn-primary {
+  background: var(--color-indigo);
+  border-color: var(--color-indigo);
+  color: #fff;
+}
+.btn-ghost {
+  background: rgb(255 250 240 / 0.6);
+}
+.btn-danger {
+  border-color: var(--color-vermilion);
+  color: var(--color-vermilion);
+}
+@media (hover: hover) {
+  .btn-primary:not(:disabled):hover { background: #263f85; }
+  .btn-ghost:not(:disabled):hover { background: #fff; }
+  .btn-danger:not(:disabled):hover { background: var(--color-vermilion); color: #fff; }
+}
+
+.field {
+  width: 100%;
+  height: 48px;
+  padding: 0 14px;
+  border: 1.5px solid var(--color-ink);
+  background: rgb(255 250 240 / 0.8);
+  font-size: 1rem;
+  color: var(--color-ink);
+}
+.field::placeholder {
+  color: rgb(106 88 74 / 0.7);
+}
+.field:focus {
+  outline: 2px solid var(--color-indigo);
+  outline-offset: 1px;
+  background: #fff;
+}
+
+.card {
+  background: rgb(255 250 240 / 0.86);
+  box-shadow: var(--shadow-float);
+}
+
+/* Progress + volume share one track style. */
+.range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 16px;
+  background: transparent;
+  cursor: pointer;
+}
+.range:disabled {
+  cursor: default;
+}
+.range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--color-ink) var(--fill, 0%), rgb(42 32 25 / 0.18) var(--fill, 0%));
+}
+.range::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--color-ink) var(--fill, 0%), rgb(42 32 25 / 0.18) var(--fill, 0%));
+}
+.range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: var(--color-ink);
+}
+.range::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--color-ink);
+}
+.range:disabled::-webkit-slider-thumb { opacity: 0; }
+.range:disabled::-moz-range-thumb { opacity: 0; }
+
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(42 32 25 / 0.25) transparent;
+}
+
+.float-reaction {
+  position: absolute;
+  bottom: 0;
+  font-size: 30px;
+  pointer-events: none;
+  animation: floatUp 2.4s ease-out forwards;
+}
+@keyframes floatUp {
+  0% { transform: translate3d(0, 0, 0) scale(0.6); opacity: 0; }
+  12% { opacity: 1; transform: translate3d(0, -20px, 0) scale(1.15); }
+  100% { transform: translate3d(var(--dx, 0px), -240px, 0) scale(1); opacity: 0; }
+}
+
+.yt-mount > iframe,
+.yt-mount > div {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .record,
+  .record-lift,
+  .record-disc {
+    transition-duration: 0.01s;
+  }
+  .disc-spin,
+  .eq.is-on i,
+  .backdrop-bokeh {
+    animation: none;
+  }
+  .float-reaction {
+    animation-duration: 0.01s;
+  }
+}

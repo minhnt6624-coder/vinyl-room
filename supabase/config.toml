@@ -1,0 +1,9 @@
+# Used by the Supabase CLI (supabase link / db push / functions deploy / start).
+project_id = "vinyl-room"
+
+[auth]
+# Guests and hosts sign in anonymously; this is what makes "no account" work.
+enable_anonymous_sign_ins = true
+
+[functions.youtube-search]
+verify_jwt = true
