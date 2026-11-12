@@ -45,7 +45,7 @@ function statusLabel(item: QueueItem, upNextIndex: number, playing: boolean): st
 }
 
 export function ListeningRoomPage({ roomId, onGone }: { roomId: string; onGone(): void }) {
-  const { state, phase, error, connection, onlineIds, clockOffset, refetch } = useRoom(roomId);
+  const { state, phase, error, connection, onlineIds, clockOffset, clockCalibrated, refetch } = useRoom(roomId);
   const toast = useToast();
   const navigate = useNavigate();
   const location = useLocation();
@@ -142,6 +142,7 @@ export function ListeningRoomPage({ roomId, onGone }: { roomId: string; onGone()
     item: current,
     isHost,
     clockOffset,
+    clockCalibrated,
     onHostPlayback: (status, position) => {
       playbackService.set(roomId, status, position).catch(() => {});
     },

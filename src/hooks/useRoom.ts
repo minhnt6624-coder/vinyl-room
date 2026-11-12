@@ -3,6 +3,7 @@ import { AppError } from '../lib/errors';
 import { supabase } from '../lib/supabase';
 import { roomService } from '../services/roomService';
 import type { Room, RoomState } from '../types';
+import { CALIBRATED_SAMPLES, useServerClock } from './useServerClock';
 
 export type RoomPhase = 'loading' | 'ready' | 'removed' | 'error';
 export type Connection = 'connecting' | 'live' | 'reconnecting';
@@ -105,5 +106,17 @@ export function useRoom(roomId: string) {
     };
   }, [roomId, meId, refetch, scheduleRefetch]);
 
-  return { state, phase, error, connection, onlineIds, clockOffset, refetch };
+  // The pinged server clock replaces the one-off measurement as soon as it has
+  // a sample; the tight sync tolerance waits for a few good ones.
+  const serverClock = useServerClock(Boolean(meId));
+  return {
+    state,
+    phase,
+    error,
+    connection,
+    onlineIds,
+    clockOffset: serverClock.offset ?? clockOffset,
+    clockCalibrated: serverClock.goodSamples >= CALIBRATED_SAMPLES,
+    refetch,
+  };
 }

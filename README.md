@@ -53,7 +53,21 @@ Playback is one timeline per room, stored on the `rooms` row and written only by
 position now = playback_position + (server now - playback_started_at)   while playing
 ```
 
-The row is written on play, pause, seek, track change and when the host's player has drifted. It is never written on a timer. Each client measures its clock offset from the server when it loads state, then keeps its own YouTube player within about 2 seconds of the shared timeline.
+The row is written on play, pause, seek, track change and when the host's player has drifted. It is never written on a timer. Each client estimates the server's clock by pinging `server_time()`: five times on entering the room, then every 30 seconds and whenever the tab becomes visible again ([src/lib/serverClock.ts](src/lib/serverClock.ts), a port of the Listen Together clock in SimpMusic and Metrolist). Positions are computed against that clock, on a monotonic local clock, so a wrong or changing device clock does not matter.
+
+How far a player may drift before it is corrected is decided in [src/lib/driftPolicy.ts](src/lib/driftPolicy.ts):
+
+| Who | Corrected when off by more than | How |
+| --- | --- | --- |
+| Guest, clock calibrated (3 good samples) | 0.5 s | Seeks its own player |
+| Guest, not calibrated yet | 1.2 s | Seeks its own player |
+| Host | 0.8 s | Moves the room's timeline to its player |
+
+At most one correction every 8 seconds. If three in a row do not hold (a slow connection), the tolerance widens to 1.5 seconds until the next track instead of seeking in a loop. Each seek aims slightly ahead by the rebuffering time measured on earlier seeks.
+
+If `server_time()` is missing (the migration has not been applied), clients fall back to the offset measured when the room state was loaded and stay on the 1.2 second tolerance.
+
+To measure sync yourself: open the room in two browser profiles and on a phone on the same network, play a track with a clear beat, and compare. For numbers, run this in each browser's console inside the YouTube frame (pick the `youtube.com` frame in DevTools) at the same moment: `document.querySelector('video').currentTime`.
 
 If the browser blocks autoplay, the listener sees a **Join listening** button. Known limit: the queue advances from the host's browser. If the host closes their tab, the current record finishes for everyone, but the next one does not start until the host is back.
 
@@ -144,6 +158,7 @@ npm run dev                   # http://localhost:5173
 | `npm run typecheck` | TypeScript only |
 | `npm run build` | Typecheck and production build to `dist/` |
 | `npm run preview` | Serve the production build |
+| `npm test` | Unit tests (vitest): server clock, drift policy |
 | `npm run test:db` | Migration and permission tests, no Supabase needed |
 
 To try it with several people on one machine, use separate browser profiles or a private window per person. Tabs in the same profile share one anonymous session, so they are the same person.
@@ -178,3 +193,7 @@ supabase/
   functions/youtube-search/
 scripts/test-db.mjs      database tests
 ```
+
+## License
+
+GPL-3.0-only. See [LICENSE](LICENSE). Credits for the projects this one builds on are in [NOTICE.md](NOTICE.md).

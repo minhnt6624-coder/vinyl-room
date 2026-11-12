@@ -205,6 +205,15 @@ const closed = await state(B, roomId);
 ok(closed.room.status === 'closed' && closed.room.playback_status === 'idle', 'closing stops playback and marks the room closed');
 await rejects(rpc(D, 'join_room', [created.room_code, 'Dan', '🐸']), 'VR_ROOM_CLOSED', 'closed room cannot be joined');
 
+console.log('\nserver clock');
+const before = Date.now();
+const pong = await rpc(B, 'server_time');
+const after = Date.now();
+ok(typeof pong.receive_ms === 'number' && typeof pong.send_ms === 'number', 'server_time returns receive and send times in ms');
+ok(pong.send_ms >= pong.receive_ms, 'send time is not before receive time');
+ok(pong.receive_ms >= before - 1000 && pong.send_ms <= after + 1000, 'times are epoch milliseconds, close to now');
+await rejects(as(null, 'select public.server_time()'), 'permission denied', 'signed-out (anon) role cannot read the server clock');
+
 console.log('\nrealtime publication');
 const pub = await db.query(`select tablename from pg_publication_tables where pubname = 'supabase_realtime' order by 1`);
 ok(pub.rows.map((r) => r.tablename).join() === 'queue_items,room_members,rooms', 'rooms, room_members and queue_items are published');

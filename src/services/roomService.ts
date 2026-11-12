@@ -1,3 +1,4 @@
+import { monotonicNow } from '../lib/monotonic';
 import { rpc } from '../lib/supabase';
 import type { PublicRoom, RequestMode, RoomPreview, RoomSettingsPatch, RoomState, Visibility } from '../types';
 
@@ -22,12 +23,15 @@ export const roomService = {
 
   /** Returns the state plus serverTime - localTime, for the shared playback clock. */
   async state(roomId: string): Promise<{ state: RoomState; clockOffsetMs: number }> {
-    const t0 = Date.now();
+    const t0 = monotonicNow();
     const data = await rpc<RoomState & { server_now: string }>('get_room_state', { p_room_id: roomId });
-    const t1 = Date.now();
+    const t1 = monotonicNow();
     const { server_now, ...state } = data;
     return { state, clockOffsetMs: Date.parse(server_now) - (t0 + t1) / 2 };
   },
+
+  /** One clock-sync pong: when the server received and answered, in epoch ms. */
+  serverTime: () => rpc<{ receive_ms: number; send_ms: number }>('server_time'),
 
   listPublic: () => rpc<PublicRoom[]>('list_public_rooms'),
 

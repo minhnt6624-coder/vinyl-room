@@ -1,4 +1,5 @@
 import type { QueueItem, Room } from '../types';
+import { monotonicNow } from './monotonic';
 
 export function formatTime(seconds: number | null | undefined): string {
   if (seconds == null || !Number.isFinite(seconds)) return '–:––';
@@ -19,11 +20,12 @@ export function timeAgo(iso: string, nowMs: number = Date.now()): string {
 
 /**
  * Where the room's shared timeline is right now, in seconds.
- * clockOffsetMs = serverTime - localTime, measured when room state was fetched.
+ * clockOffsetMs = serverTime - monotonicNow(), from useServerClock (or, until
+ * that has a sample, measured when room state was fetched).
  */
 export function expectedPosition(room: Pick<Room, 'playback_status' | 'playback_position' | 'playback_started_at'>, clockOffsetMs: number): number {
   if (room.playback_status === 'playing' && room.playback_started_at) {
-    const elapsed = (Date.now() + clockOffsetMs - Date.parse(room.playback_started_at)) / 1000;
+    const elapsed = (monotonicNow() + clockOffsetMs - Date.parse(room.playback_started_at)) / 1000;
     return room.playback_position + Math.max(0, elapsed);
   }
   return room.playback_position;

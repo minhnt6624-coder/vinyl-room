@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { baseTolerance, evaluateDrift, initialDriftState, nextTrackState, noteCorrection, toleranceFor, updateAnchorLead } from '../lib/driftPolicy';
 import { expectedPosition } from '../lib/format';
 import { loadYouTubeApi, YT_STATE, type YTPlayer } from '../services/providers/youtubeIframe';
 import type { PlayerHandle, QueueItem, Room } from '../types';
@@ -8,6 +9,8 @@ interface Options {
   item: QueueItem | null;
   isHost: boolean;
   clockOffset: number;
+  /** The server clock has enough good samples for the tight tolerance. */
+  clockCalibrated: boolean;
   /** Host only: the local player changed state on its own (controls, buffering, drift). */
   onHostPlayback(status: 'playing' | 'paused', position: number): void;
   /** Host only: the current record finished or cannot be played. */
@@ -17,12 +20,9 @@ interface Options {
   onPlayerError?(message: string): void;
 }
 
-// How far a player may sit from the shared timeline before it is corrected.
-// The host re-anchors the room (a database write), so it gets more slack than
-// a guest, who only seeks locally.
-const HOST_TOLERANCE = 2;
-const GUEST_TOLERANCE = 1.2;
-const DRIFT_CHECK_MS = 4000;
+// How often the local player is compared with the shared timeline. Whether a
+// difference is acted on is decided by lib/driftPolicy.
+const DRIFT_CHECK_MS = 2000;
 // A slow first load looks like blocked autoplay for a few seconds; wait this
 // long before asking the listener to tap.
 const AUTOPLAY_GRACE_MS = 4500;
@@ -41,6 +41,9 @@ const storedVolume = () => {
  *    player disagrees (paused in the iframe, ended, drifted after buffering).
  * Nothing here writes on a timer: the periodic check is local and only leads
  * to a write when the host's player has actually drifted.
+ *
+ * How far apart is too far, how often a correction may happen and how far
+ * ahead to seek are decided by lib/driftPolicy, not here.
  */
 export function usePlaybackSync(opts: Options): PlayerHandle {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -60,6 +63,9 @@ export function usePlaybackSync(opts: Options): PlayerHandle {
   const durationReportedFor = useRef<string | null>(null);
   const pauseTimer = useRef<number | undefined>(undefined);
   const gestureTimer = useRef<number | undefined>(undefined);
+  const drift = useRef(initialDriftState());
+  const anchorLead = useRef(0);
+  const anchorPending = useRef(false);
 
   const { room, item } = opts;
   const videoId = item?.track.provider === 'youtube' ? item.track.provider_track_id : null;
@@ -92,7 +98,14 @@ export function usePlaybackSync(opts: Options): PlayerHandle {
           return;
         }
         if (localPause.current && !force) return;
-        if (Math.abs(p.getCurrentTime() - target) > GUEST_TOLERANCE) p.seekTo(target, true);
+        // A command from the room (play, seek, re-anchor). Not subject to the
+        // cooldown, but it starts one, so the drift check does not seek again
+        // while this one is still buffering.
+        const tolerance = toleranceFor(drift.current, baseTolerance(cur.isHost, cur.clockCalibrated));
+        if (Math.abs(p.getCurrentTime() - target) > tolerance) {
+          p.seekTo(target + (cur.isHost ? 0 : drift.current.lead), true);
+          drift.current = noteCorrection(drift.current, performance.now());
+        }
         if (st !== YT_STATE.PLAYING && st !== YT_STATE.BUFFERING) {
           p.playVideo();
           armGestureCheck();
@@ -222,6 +235,7 @@ export function usePlaybackSync(opts: Options): PlayerHandle {
     const cur = latest.current;
     hasPlayed.current = false;
     localPause.current = false;
+    drift.current = nextTrackState(drift.current);
     setDuration(null);
     if (!videoId || !cur.room) {
       p.stopVideo();
@@ -230,7 +244,12 @@ export function usePlaybackSync(opts: Options): PlayerHandle {
     }
     const startSeconds = expectedPosition(cur.room, cur.clockOffset);
     if (cur.room.playback_status === 'playing') {
-      p.loadVideoById({ videoId, startSeconds });
+      // A guest aims ahead by what loading usually costs it; the host's start
+      // defines the timeline, so it does not.
+      p.loadVideoById({ videoId, startSeconds: startSeconds + (cur.isHost ? 0 : drift.current.lead) });
+      // The first measurement after loading shows how long loading took, which
+      // is what the lead should learn. No cooldown: a slow start is fixed at once.
+      if (!cur.isHost) drift.current = { ...drift.current, awaitingResult: true };
       armGestureCheck();
     } else {
       p.cueVideoById({ videoId, startSeconds });
@@ -251,13 +270,25 @@ export function usePlaybackSync(opts: Options): PlayerHandle {
       const cur = latest.current;
       if (!p || !cur.room || cur.room.playback_status !== 'playing' || cur.item?.track.provider !== 'youtube') return;
       if (p.getPlayerState() !== YT_STATE.PLAYING) return;
-      const drift = p.getCurrentTime() - expectedPosition(cur.room, cur.clockOffset);
-      if (Math.abs(drift) < (cur.isHost ? HOST_TOLERANCE : GUEST_TOLERANCE)) return;
-      if (cur.isHost) cur.onHostPlayback('playing', p.getCurrentTime());
-      else sync();
+      const expected = expectedPosition(cur.room, cur.clockOffset);
+      const measured = p.getCurrentTime() - expected;
+      // The first look after a host re-anchor shows how long that request took.
+      if (anchorPending.current) {
+        anchorPending.current = false;
+        anchorLead.current = updateAnchorLead(anchorLead.current, measured);
+      }
+      const decision = evaluateDrift(drift.current, measured, performance.now(), baseTolerance(cur.isHost, cur.clockCalibrated));
+      drift.current = decision.state;
+      if (!decision.correct) return;
+      // The host's player is the truth: move the room's timeline to it.
+      // A guest moves its own player, aiming ahead to land on time.
+      if (cur.isHost) {
+        anchorPending.current = true;
+        cur.onHostPlayback('playing', p.getCurrentTime() + anchorLead.current);
+      } else p.seekTo(expected + decision.state.lead, true);
     }, DRIFT_CHECK_MS);
     return () => window.clearInterval(id);
-  }, [ready, sync]);
+  }, [ready]);
 
   useEffect(() => {
     const p = playerRef.current;
