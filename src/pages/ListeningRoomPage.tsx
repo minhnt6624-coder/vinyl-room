@@ -5,6 +5,7 @@ import { Backdrop } from '../components/layout/Backdrop';
 import { Logo } from '../components/layout/Logo';
 import { Notice } from '../components/layout/Notice';
 import { Sheet } from '../components/layout/Sheet';
+import { LyricsDock, type LyricsMode } from '../components/lyrics/LyricsDock';
 import { Avatar } from '../components/participants/Avatar';
 import { AvatarStack, MemberList } from '../components/participants/Participants';
 import { PlayerBar } from '../components/player/PlayerBar';
@@ -53,6 +54,7 @@ export function ListeningRoomPage({ roomId, onGone }: { roomId: string; onGone()
   const justCreated = Boolean((location.state as { justCreated?: boolean } | null)?.justCreated);
   const [panel, setPanel] = useState<Panel>(justCreated ? 'share' : null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [lyricsMode, setLyricsMode] = useState<LyricsMode>('closed');
 
   const room = state?.room ?? null;
   const queue = state?.queue ?? [];
@@ -222,6 +224,10 @@ export function ListeningRoomPage({ roomId, onGone }: { roomId: string; onGone()
   const canRequest = isHost || room.allow_requests;
   const openLibrary = () => setPanel('library');
   const close = () => setPanel(null);
+  // Lyrics need a record on the turntable. Below xl they open as a sheet, and
+  // full screen covers the window, so <main> then rises above the player bar.
+  const lyricsShown = current ? lyricsMode : 'closed';
+  const mainLayer = lyricsShown === 'full' ? 'z-50' : lyricsShown === 'open' ? 'z-50 xl:z-10' : 'z-10';
 
   const tabs: { id: Exclude<Panel, 'people' | 'share' | null> | 'now'; label: string }[] = [
     { id: 'now', label: 'Now playing' },
@@ -294,7 +300,7 @@ export function ListeningRoomPage({ roomId, onGone }: { roomId: string; onGone()
         </p>
       )}
 
-      <main className="relative z-10 flex flex-1 flex-col">
+      <main className={`relative flex flex-1 flex-col ${mainLayer}`}>
         <div className="relative h-[clamp(220px,40dvh,460px)] flex-none">
           <VinylShelf items={shelf} selectedId={selectedId} onSelect={setSelectedId} currentId={currentId} isPlaying={playing} onEmptyAction={openLibrary} />
           {shelf.length > 1 && (
@@ -308,7 +314,7 @@ export function ListeningRoomPage({ roomId, onGone }: { roomId: string; onGone()
                 <ChevronLeft size={20} />
               </button>
               <button
-                className="icon-btn card absolute right-2 top-1/2 z-10 -translate-y-1/2 md:right-6"
+                className={`icon-btn card absolute right-2 top-1/2 z-10 -translate-y-1/2 md:right-6 ${lyricsShown === 'open' ? 'xl:right-[340px]' : ''}`}
                 onClick={() => step(1)}
                 disabled={selectedIndex >= shelf.length - 1}
                 aria-label="Browse to the next record on the shelf"
@@ -371,7 +377,9 @@ export function ListeningRoomPage({ roomId, onGone }: { roomId: string; onGone()
               </>
             )}
           </div>
-          <Screen item={current} player={player} />
+          <LyricsDock mode={lyricsMode} onMode={setLyricsMode} room={room} item={current} next={upNext[0] ?? null} clockOffset={clockOffset} playerDuration={player.duration}>
+            <Screen item={current} player={player} />
+          </LyricsDock>
         </section>
       </main>
 
@@ -382,7 +390,7 @@ export function ListeningRoomPage({ roomId, onGone }: { roomId: string; onGone()
 
       <div className="fixed inset-x-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] z-30 md:inset-x-5 md:bottom-5 xl:right-[335px]">
         <div className="mx-auto max-w-3xl">
-          <PlayerBar room={room} item={current} isHost={isHost} hasUpNext={upNext.length > 0} clockOffset={clockOffset} player={player} actions={actions} />
+          <PlayerBar room={room} item={current} isHost={isHost} hasUpNext={upNext.length > 0} clockOffset={clockOffset} player={player} actions={actions} lyricsOpen={lyricsShown !== 'closed'} onToggleLyrics={() => setLyricsMode((m) => (m === 'closed' ? 'open' : 'closed'))} />
         </div>
       </div>
 

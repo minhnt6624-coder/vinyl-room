@@ -145,7 +145,11 @@ Quota: each search costs 100 units of the default 10,000 per day, so about 100 s
 
 ### Lyrics
 
-Synced lyrics come from [LRCLIB](https://lrclib.net) through the `lyrics` Edge Function. There is no UI for them yet; `src/services/lyricsService.ts` is the client side.
+Synced lyrics come from [LRCLIB](https://lrclib.net) through the `lyrics` Edge Function. The Lyrics button in the player bar opens them: a column beside the room on wide screens, a sheet on phones, and a full screen view over the record's artwork. The line shown is read from the room's shared timeline, not from the local player, so every listener sees the same one. `±0.5s` nudges the timing for this browser only, per track.
+
+The client (`src/services/lyricsService.ts`) reads `lyrics_cache` directly and calls the function only when there is no usable row. It does so only while the lyrics are open, and fetches the next record's lyrics 20 seconds before the current one ends.
+
+The provider's player is never covered by the lyrics. `LyricsDock` lays the lyrics out around `Screen` instead of putting a layer over it.
 
 Deploy it after the `lyrics_cache` migration has been applied (the function needs the table and `consume_lyrics_quota`):
 
@@ -159,9 +163,12 @@ It needs no secret of its own. It reuses `YOUTUBE_API_KEY` when a track has no d
 How a lookup works:
 
 1. The caller must be a member of a room that has the track. The function reads the track with the caller's token, so row level security decides. 30 lookups a minute per person.
-2. If `lyrics_cache` has a row, that is the answer. A "nothing found" row is trusted for 7 days.
-3. If the track has no duration (a pasted link), the function asks YouTube for it (`videos.list`, 1 quota unit) and stores it on the track.
-4. The video title is cleaned ("(Official Video)", "[MV]", "ft. ...", a channel's "- Topic") and read as artist and song in several ways.
+2. If `lyrics_cache` has a row, that is the answer. A "nothing found" row is trusted for 7 days, unless it was recorded for a Spotify track whose artist was still unknown.
+3. What the track row lacks is filled in and stored on the track, depending on the provider:
+   - **YouTube:** a missing duration (a pasted link) is asked from `videos.list` (1 quota unit). No other provider triggers this call.
+   - **Spotify:** a pasted link is stored with a title only, because Spotify's oEmbed returns neither artist nor duration. Both are read from the official embed page (`_shared/spotifyMeta.ts`). If that fails the track cannot be matched, and the miss is not cached.
+   - **SoundCloud:** title and uploader are used as stored. No duration is available, so the match is by name alone.
+4. The names are turned into queries. A YouTube or SoundCloud title is cleaned ("(Official Video)", "[MV]", "ft. ...", a channel's "- Topic") and read as artist and song in several ways. A Spotify title is taken as the song and its artist as the artist; only a version suffix ("- Remastered 2011") and guest credits are removed.
 5. LRCLIB is asked with `/api/get`, then `/api/search`, at most 6 requests. The best record wins: synced lyrics within 2 seconds of the track's length, then synced within 10, then plain. A record more than 10 seconds off, or whose name does not match, is never used.
 6. The result is stored. When the duration was unknown, `matched_duration` is left null, and the row is deleted as soon as the host's player reports the duration (`set_track_duration`), so the next lookup can match on length too.
 
@@ -198,7 +205,7 @@ npm run dev                   # http://localhost:5173
 | `npm run typecheck` | TypeScript only |
 | `npm run build` | Typecheck and production build to `dist/` |
 | `npm run preview` | Serve the production build |
-| `npm test` | Unit tests (vitest): server clock, drift policy, LRC parser, lyrics matching |
+| `npm test` | Unit tests (vitest): server clock, drift policy, LRC parser, lyrics matching, current lyric line and offset |
 | `npm run test:db` | Migration and permission tests, no Supabase needed |
 
 To try it with several people on one machine, use separate browser profiles or a private window per person. Tabs in the same profile share one anonymous session, so they are the same person.
