@@ -7,6 +7,7 @@ import { getProvider } from '../../services/providers';
 import type { QueueItem, Room } from '../../types';
 import { Artwork } from '../vinyl/Artwork';
 import { LyricsPanel } from './LyricsPanel';
+import { LYRICS_TEXT as T } from './strings';
 
 export type LyricsMode = 'closed' | 'open' | 'full';
 
@@ -125,7 +126,7 @@ export function LyricsDock({ mode, onMode, room, item, next, clockOffset, player
         className={frame}
         role={full || sheet ? 'dialog' : undefined}
         aria-modal={full || sheet ? true : undefined}
-        aria-label={shown === 'closed' ? undefined : 'Lyrics'}
+        aria-label={shown === 'closed' ? undefined : T.title}
         data-lyrics-mode={shown}
       >
         {full && item && (
@@ -163,13 +164,13 @@ export function LyricsDock({ mode, onMode, room, item, next, clockOffset, player
             >
               <div className="min-w-0">
                 <div className={`eyebrow mb-1 truncate ${full ? 'text-cream/70' : 'text-indigo'}`}>{item.track.artist ?? provider!.label}</div>
-                <h2 className={`truncate font-display font-semibold leading-tight ${column ? 'text-2xl' : 'text-3xl'}`}>{full ? item.track.title : 'Lyrics'}</h2>
+                <h2 className={`truncate font-display font-semibold leading-tight ${column ? 'text-2xl' : 'text-3xl'}`}>{full ? item.track.title : T.title}</h2>
               </div>
               <div className="-mr-2 flex flex-none items-center">
-                <button className="icon-btn" onClick={() => onMode(full ? 'open' : 'full')} aria-label={full ? 'Thoát toàn màn hình' : 'Toàn màn hình'}>
+                <button className="icon-btn" onClick={() => onMode(full ? 'open' : 'full')} aria-label={full ? T.exitFullScreen : T.fullScreen}>
                   {full ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
                 </button>
-                <button className="icon-btn" onClick={() => (full ? onMode('closed') : void close())} aria-label="Đóng lyrics">
+                <button className="icon-btn" onClick={() => (full ? onMode('closed') : void close())} aria-label={T.close}>
                   <X size={20} />
                 </button>
               </div>

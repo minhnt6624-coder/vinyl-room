@@ -4,9 +4,10 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type Poin
 import { useActiveLine } from '../../hooks/useActiveLine';
 import type { LyricsPhase } from '../../hooks/useLyrics';
 import type { LrcLine } from '../../lib/lrc';
-import { formatOffset, lyricsView, OFFSET_STEP_MS, readOffset, writeOffset } from '../../lib/lyricsSync';
+import { lyricsView, OFFSET_STEP_MS, readOffset, writeOffset } from '../../lib/lyricsSync';
 import type { TrackLyrics } from '../../services/lyricsService';
 import type { Room } from '../../types';
+import { LYRICS_TEXT as T } from './strings';
 
 interface Props {
   phase: LyricsPhase;
@@ -43,24 +44,24 @@ export function LyricsPanel({ phase, lyrics, onRetry, trackId, providerSynced, r
     <div className={`relative flex min-h-0 flex-col ${className}`} aria-live="off" data-lyrics={view?.kind ?? phase}>
       {phase === 'error' ? (
         <Note className={soft}>
-          Chưa tải được lời.{' '}
+          {T.loadFailed}{' '}
           <button className={`underline underline-offset-2 ${dark ? 'text-cream' : 'text-indigo'}`} onClick={onRetry}>
-            Thử lại
+            {T.retry}
           </button>
         </Note>
       ) : !view ? (
-        <div className="flex flex-1 flex-col justify-center gap-4 px-1" role="status" aria-label="Đang tải lời">
+        <div className="flex flex-1 flex-col justify-center gap-4 px-1" role="status" aria-label={T.loading}>
           {['w-4/5', 'w-3/5', 'w-2/3'].map((width) => (
             <div key={width} className={`h-7 animate-pulse rounded-md motion-reduce:animate-none ${width} ${dark ? 'bg-cream/15' : 'bg-ink/10'}`} />
           ))}
         </div>
       ) : view.kind === 'instrumental' ? (
-        <Note className={`font-display text-3xl ${dark ? 'text-cream' : 'text-ink'}`}>Nhạc không lời ♪</Note>
+        <Note className={`font-display text-3xl ${dark ? 'text-cream' : 'text-ink'}`}>{T.instrumental}</Note>
       ) : view.kind === 'none' ? (
-        <Note className={soft}>Chưa có lời cho bài này</Note>
+        <Note className={soft}>{T.notFound}</Note>
       ) : view.kind === 'static' ? (
-        <div className="lyrics-scroll scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain" role="region" aria-label="Lyrics" tabIndex={0}>
-          {!providerSynced && <p className={`eyebrow mb-4 !text-[10px] ${soft}`}>Không đồng bộ</p>}
+        <div className="lyrics-scroll scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain" role="region" aria-label={T.title} tabIndex={0}>
+          {!providerSynced && <p className={`eyebrow mb-4 !text-[10px] ${soft}`}>{T.notSynced}</p>}
           <div className={`font-display leading-snug ${large ? 'text-3xl' : 'text-xl'}`}>
             {view.text.map((line, i) => (line ? <p key={i} className="mb-2">{line}</p> :<p key={i} className="h-5" aria-hidden="true" />))}
           </div>
@@ -156,7 +157,7 @@ function SyncedLines({ lines, trackId, room, clockOffset, dark, large }: SyncedP
           ref={scroller}
           className="lyrics-scroll lyrics-fade scroll-thin relative min-h-0 flex-1 overflow-y-auto overscroll-contain"
           role="region"
-          aria-label="Lyrics"
+          aria-label={T.title}
           tabIndex={0}
           onWheel={hold}
           onTouchMove={hold}
@@ -171,7 +172,7 @@ function SyncedLines({ lines, trackId, room, clockOffset, dark, large }: SyncedP
                 className={`lyric-line ${i === active ? 'is-current' : i < active ? 'is-past' : ''}`}
                 aria-current={i === active ? 'true' : undefined}
               >
-                {line.text || '♪'}
+                {line.text || T.pause}
               </p>
             ))}
           </div>
@@ -188,24 +189,24 @@ function SyncedLines({ lines, trackId, room, clockOffset, dark, large }: SyncedP
               transition={{ duration: reducedMotion ? 0 : 0.2 }}
               onClick={resume}
             >
-              <ArrowDown size={14} /> <span className="eyebrow !text-[10px]">Về dòng hiện tại</span>
+              <ArrowDown size={14} /> <span className="eyebrow !text-[10px]">{T.backToCurrent}</span>
             </motion.button>
           )}
         </AnimatePresence>
       </div>
 
       {/* Timing nudge: this listener only, remembered per track. */}
-      <div className="flex flex-none items-center justify-center gap-2 pt-2" role="group" aria-label="Chỉnh độ lệch lời">
-        <button className={chip} onClick={() => nudge(-OFFSET_STEP_MS)} aria-label="Lời chậm hơn 0,5 giây">
-          −0.5s
+      <div className="flex flex-none items-center justify-center gap-2 pt-2" role="group" aria-label={T.offsetGroup}>
+        <button className={chip} onClick={() => nudge(-OFFSET_STEP_MS)} aria-label={T.offsetLaterLabel}>
+          {T.offsetLater}
         </button>
         {offset !== 0 && (
-          <button className={`${chip} tabular-nums ${dark ? 'text-cream' : 'text-indigo'}`} onClick={() => setOffset(writeOffset(trackId, 0))} title="Đặt lại" aria-label={`Độ lệch ${formatOffset(offset)}. Đặt lại`} data-offset={offset}>
-            {formatOffset(offset)}
+          <button className={`${chip} tabular-nums ${dark ? 'text-cream' : 'text-indigo'}`} onClick={() => setOffset(writeOffset(trackId, 0))} title={T.offsetReset} aria-label={T.offsetValueLabel(offset)} data-offset={offset}>
+            {T.offsetValue(offset)}
           </button>
         )}
-        <button className={chip} onClick={() => nudge(OFFSET_STEP_MS)} aria-label="Lời sớm hơn 0,5 giây">
-          +0.5s
+        <button className={chip} onClick={() => nudge(OFFSET_STEP_MS)} aria-label={T.offsetEarlierLabel}>
+          {T.offsetEarlier}
         </button>
       </div>
     </>
