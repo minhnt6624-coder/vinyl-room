@@ -16,12 +16,13 @@ const db = new PGlite();
 await db.exec(`
   create role anon nologin;
   create role authenticated nologin;
+  create role service_role nologin bypassrls;
   create schema auth;
   create table auth.users (id uuid primary key);
   create function auth.uid() returns uuid language sql stable as
     $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
   grant usage on schema auth to anon, authenticated;
-  grant usage on schema public to anon, authenticated;
+  grant usage on schema public to anon, authenticated, service_role;
   create publication supabase_realtime;
 `);
 
@@ -204,6 +205,67 @@ await rpc(A, 'close_room', [roomId]);
 const closed = await state(B, roomId);
 ok(closed.room.status === 'closed' && closed.room.playback_status === 'idle', 'closing stops playback and marks the room closed');
 await rejects(rpc(D, 'join_room', [created.room_code, 'Dan', '🐸']), 'VR_ROOM_CLOSED', 'closed room cannot be joined');
+
+console.log('\nlyrics cache');
+// What the Edge Function does with the service role key.
+async function asService(sql, params = []) {
+  await db.exec('reset role');
+  await db.exec('set role service_role');
+  try {
+    return await db.query(sql, params);
+  } finally {
+    await db.exec('reset role');
+  }
+}
+const E = await newUser(); // host of a second room
+const F = await newUser(); // guest in it
+const lyricRoom = await rpc(E, 'create_room', ['Lyrics room', 'private', 'auto', 'Em', '🦊']);
+await rpc(F, 'join_room', [lyricRoom.room_code, 'Phu', '🐼']);
+// Videos no other room in this script has: a track row is shared by every room that queues it.
+const pasted = await rpc(F, 'request_track', [lyricRoom.room_id, 'youtube', 'hT_nvWreIhg', 'Pasted link, no duration']);
+const pasted2 = await rpc(F, 'request_track', [lyricRoom.room_id, 'youtube', 'RgKAFK5djSk', 'Another pasted link']);
+const lyricState = await state(F, lyricRoom.room_id);
+const trackOf = (itemId) => lyricState.queue.find((q) => q.id === itemId).track;
+const t1 = trackOf(pasted.item_id);
+const t2 = trackOf(pasted2.item_id);
+ok(t1.duration_seconds === null && t2.duration_seconds === null, 'pasted links start without a duration');
+
+await asService(`insert into public.lyrics_cache (track_id, source, synced_lrc, matched_duration) values ($1, 'lrclib', '[00:01.00]la', null)`, [t1.id]);
+await asService(`insert into public.lyrics_cache (track_id, source, synced_lrc, matched_duration) values ($1, 'lrclib', '[00:01.00]la', 180)`, [t2.id]);
+ok(true, 'service role can write the cache');
+ok((await as(F, 'select track_id from public.lyrics_cache')).rows.length === 2, 'room member reads cached lyrics for tracks in their room');
+ok((await as(D, 'select track_id from public.lyrics_cache')).rows.length === 0, 'outsider reads no cached lyrics');
+ok((await as(B, 'select track_id from public.lyrics_cache')).rows.length === 0, 'member of another room reads none either');
+await rejects(as(F, `insert into public.lyrics_cache (track_id, source) values ($1, 'none')`, [t1.id]), 'permission denied', 'member cannot INSERT into the cache');
+await rejects(as(F, `update public.lyrics_cache set synced_lrc = 'x'`), 'permission denied', 'member cannot UPDATE the cache');
+await rejects(as(F, `delete from public.lyrics_cache`), 'permission denied', 'member cannot DELETE from the cache');
+await rejects(asService(`update public.lyrics_cache set source = 'somewhere' where track_id = $1`, [t1.id]), 'check constraint', 'unknown source is rejected');
+
+await rejects(as(null, 'select public.consume_lyrics_quota()'), 'permission denied', 'signed-out (anon) role cannot use the lyrics quota');
+await rpc(F, 'consume_lyrics_quota');
+ok(true, 'signed-in user passes the lyrics quota check');
+
+await rejects(rpc(F, 'set_track_duration', [pasted.item_id, 200]), 'VR_NOT_HOST', 'guest cannot set a duration');
+await rpc(E, 'set_track_duration', [pasted.item_id, 200]);
+await rpc(E, 'set_track_duration', [pasted2.item_id, 181]);
+const left = (await db.query('select track_id from public.lyrics_cache order by 1')).rows.map((r) => r.track_id);
+ok(!left.includes(t1.id), 'a duration arriving clears lyrics that were matched by name alone');
+ok(left.includes(t2.id), 'lyrics matched on duration are kept');
+ok((await state(F, lyricRoom.room_id)).queue.find((q) => q.id === pasted.item_id).track.duration_seconds === 200, 'the duration itself is stored');
+await asService(`insert into public.lyrics_cache (track_id, source) values ($1, 'none')`, [t1.id]);
+await rpc(E, 'set_track_duration', [pasted.item_id, 999]);
+ok((await db.query('select 1 from public.lyrics_cache where track_id = $1', [t1.id])).rows.length === 1, 'a duration that is already known clears nothing');
+
+let lyricLimit = null;
+for (let i = 0; i < 31 && !lyricLimit; i++) {
+  try {
+    await rpc(F, 'consume_lyrics_quota');
+  } catch (e) {
+    lyricLimit = `${String(e.message).match(/VR_[A-Z_]+/)?.[0]} at call ${i + 2}`;
+  }
+}
+ok(lyricLimit === 'VR_RATE_LIMITED at call 31', `lyrics lookups are limited to 30 a minute (${lyricLimit})`);
+await rpc(E, 'close_room', [lyricRoom.room_id]);
 
 console.log('\nserver clock');
 const before = Date.now();
