@@ -19,18 +19,27 @@ import { SearchPanel } from '../components/search/SearchPanel';
 import { VinylShelf } from '../components/vinyl/VinylShelf';
 import { APP_NAME, APP_TAGLINE } from '../config';
 import { usePlaybackSync } from '../hooks/usePlaybackSync';
+import { usePreloadNext } from '../hooks/usePreloadNext';
 import { useRoom } from '../hooks/useRoom';
 import { useToast } from '../hooks/useToast';
 import { errorMessage } from '../lib/errors';
 import { expectedPosition, shelfOrder } from '../lib/format';
+import { roomTransitionSeconds } from '../lib/transition';
 import { getProvider } from '../services/providers';
 import { playbackService } from '../services/playbackService';
 import { queueService } from '../services/queueService';
 import { reactionService } from '../services/reactionService';
 import { roomService } from '../services/roomService';
-import type { QueueItem, RoomActions } from '../types';
+import type { QueueItem, Room, RoomActions } from '../types';
 
 type Panel = 'library' | 'queue' | 'about' | 'people' | 'share' | null;
+
+/**
+ * The record a playback position belongs to, for set_playback to check. The
+ * argument arrived in the same migration as rooms.transition_seconds, so a
+ * room row without that column means a database that would reject it.
+ */
+const measuredOn = (room: Room, itemId: string | null): string | null | undefined => (room.transition_seconds === undefined ? undefined : itemId);
 
 function statusLabel(item: QueueItem, upNextIndex: number, playing: boolean): string {
   switch (item.status) {
@@ -62,9 +71,28 @@ export function ListeningRoomPage({ roomId, onGone }: { roomId: string; onGone()
   const playing = room?.playback_status === 'playing';
 
   const shelf = useMemo(() => shelfOrder(queue), [queue]);
-  const current = useMemo(() => queue.find((q) => q.status === 'playing') ?? null, [queue]);
-  const upNext = useMemo(() => shelf.filter((q) => q.status === 'approved'), [shelf]);
+  // The room row names the record that is on, and it arrives (over Realtime)
+  // before the reloaded queue does. Following it starts the next record
+  // without waiting for that reload; the queue's own status catches up after.
+  const currentItemId = room?.current_item_id ?? null;
+  const current = useMemo(
+    () => (currentItemId ? queue.find((q) => q.id === currentItemId) : undefined) ?? queue.find((q) => q.status === 'playing') ?? null,
+    [queue, currentItemId],
+  );
+  const upNext = useMemo(() => shelf.filter((q) => q.status === 'approved' && q.id !== currentItemId), [shelf, currentItemId]);
   const pendingCount = queue.filter((q) => q.status === 'pending').length;
+
+  // While the host's request to change the record is on its way, and for a
+  // moment after, its player still plays the old one. Nothing measured on that
+  // player may be written to the room in that time (see onHostPlayback).
+  const recordChangingUntil = useRef(0);
+  const changingRecord = useRef(<T,>(request: Promise<T>): Promise<T> => {
+    recordChangingUntil.current = performance.now() + 4000;
+    return request.finally(() => {
+      // Long enough for the new record to reach this browser's player.
+      recordChangingUntil.current = performance.now() + 1500;
+    });
+  }).current;
 
   // Actions read the newest state through a ref, so they stay stable across renders.
   const live = useRef({ state, clockOffset });
@@ -99,18 +127,18 @@ export function ListeningRoomPage({ roomId, onGone }: { roomId: string; onGone()
       cancel: (id) => run(queueService.cancel(id), 'Request withdrawn'),
       remove: (id) => run(queueService.remove(id)),
       reorder: (ids) => run(queueService.reorder(roomId, ids)),
-      playItem: (id) => run(playbackService.playItem(id)),
-      next: () => run(playbackService.next(roomId, theRoom()?.current_item_id ?? null)),
-      previous: () => run(playbackService.previous(roomId)),
+      playItem: (id) => run(changingRecord(playbackService.playItem(id))),
+      next: () => run(changingRecord(playbackService.next(roomId, theRoom()?.current_item_id ?? null))),
+      previous: () => run(changingRecord(playbackService.previous(roomId))),
       togglePlay() {
         const r = theRoom();
         if (!r) return;
-        if (r.playback_status === 'playing') run(playbackService.set(roomId, 'paused', expectedPosition(r, live.current.clockOffset)));
-        else run(playbackService.set(roomId, 'playing', r.playback_position));
+        if (r.playback_status === 'playing') run(playbackService.set(roomId, 'paused', expectedPosition(r, live.current.clockOffset), measuredOn(r, r.current_item_id)));
+        else run(playbackService.set(roomId, 'playing', r.playback_position, measuredOn(r, r.current_item_id)));
       },
       seek(seconds) {
         const r = theRoom();
-        if (r?.current_item_id) run(playbackService.set(roomId, r.playback_status === 'playing' ? 'playing' : 'paused', seconds));
+        if (r?.current_item_id) run(playbackService.set(roomId, r.playback_status === 'playing' ? 'playing' : 'paused', seconds, measuredOn(r, r.current_item_id)));
       },
       react: (id, type) => run(reactionService.toggle(id, type)),
       updateSettings: (patch) => run(roomService.updateSettings(roomId, patch)),
@@ -145,12 +173,18 @@ export function ListeningRoomPage({ roomId, onGone }: { roomId: string; onGone()
     isHost,
     clockOffset,
     clockCalibrated,
-    onHostPlayback: (status, position) => {
-      playbackService.set(roomId, status, position).catch(() => {});
+    transitionSeconds: roomTransitionSeconds(room),
+    nextItemId: upNext[0]?.id ?? null,
+    onHostPlayback: (status, position, itemId) => {
+      // The position was measured on the record that is on its way out. Sent
+      // now, it would land on the next record's timeline and start it there.
+      // The database refuses that when it can (measuredOn); this covers the
+      // one that cannot yet.
+      if (performance.now() < recordChangingUntil.current) return;
+      playbackService.set(roomId, status, position, room ? measuredOn(room, itemId) : undefined).catch(() => {});
     },
     onEnded: (itemId) => {
-      playbackService
-        .next(roomId, itemId)
+      changingRecord(playbackService.next(roomId, itemId))
         .then(() => refetch())
         .catch(() => {});
     },
@@ -159,6 +193,8 @@ export function ListeningRoomPage({ roomId, onGone }: { roomId: string; onGone()
     },
     onPlayerError: (message) => toast(message, 'error'),
   });
+
+  usePreloadNext({ room, item: current, next: upNext[0] ?? null, clockOffset, playerDuration: player.duration, isHost, refetch });
 
   // The shelf follows the turntable: when a new record starts, bring it forward.
   const currentId = current?.id ?? null;

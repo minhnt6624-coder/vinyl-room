@@ -43,6 +43,9 @@ export const roomService = {
       p_request_mode: patch.request_mode ?? null,
       p_allow_requests: patch.allow_requests ?? null,
       p_allow_duplicates: patch.allow_duplicates ?? null,
+      // Sent only when it is being changed, so every other setting still
+      // saves on a database that does not have this argument yet.
+      ...(patch.transition_seconds === undefined ? {} : { p_transition_seconds: patch.transition_seconds }),
     }),
 
   removeMember: (memberId: string) => rpc<void>('remove_member', { p_member_id: memberId }),

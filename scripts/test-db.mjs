@@ -267,6 +267,54 @@ for (let i = 0; i < 31 && !lyricLimit; i++) {
 ok(lyricLimit === 'VR_RATE_LIMITED at call 31', `lyrics lookups are limited to 30 a minute (${lyricLimit})`);
 await rpc(E, 'close_room', [lyricRoom.room_id]);
 
+console.log('\nsmooth transition');
+const G = await newUser(); // host of a third room
+const H = await newUser(); // guest in it
+const fadeRoom = await rpc(G, 'create_room', ['Fade room', 'private', 'auto', 'Gia', '🦊']);
+await rpc(H, 'join_room', [fadeRoom.room_code, 'Hai', '🐼']);
+ok((await state(G, fadeRoom.room_id)).room.transition_seconds === 3, 'a new room fades for 3 seconds by default');
+ok((await state(A, roomId)).room.transition_seconds === 3, 'so does every other room');
+ok((await state(H, fadeRoom.room_id)).room.transition_seconds === 3, 'guests see the setting in the room state');
+await rpc(G, 'update_room_settings', [fadeRoom.room_id, null, null, null, null, null, 8]);
+ok((await state(H, fadeRoom.room_id)).room.transition_seconds === 8, 'host sets the longest transition (8)');
+await rpc(G, 'update_room_settings', [fadeRoom.room_id, null, null, null, null, null, 0]);
+ok((await state(H, fadeRoom.room_id)).room.transition_seconds === 0, 'host turns transitions off (0)');
+await rejects(rpc(H, 'update_room_settings', [fadeRoom.room_id, null, null, null, null, null, 5]), 'VR_NOT_HOST', 'guest cannot change the transition');
+await rejects(rpc(G, 'update_room_settings', [fadeRoom.room_id, null, null, null, null, null, 9]), 'VR_INVALID_INPUT', 'transition above 8 is rejected');
+await rejects(rpc(G, 'update_room_settings', [fadeRoom.room_id, null, null, null, null, null, -1]), 'VR_INVALID_INPUT', 'negative transition is rejected');
+ok((await state(G, fadeRoom.room_id)).room.transition_seconds === 0, 'a rejected value leaves the setting alone');
+await rpc(G, 'update_room_settings', [fadeRoom.room_id, 'Fade room two']);
+const renamed = (await state(G, fadeRoom.room_id)).room;
+ok(renamed.name === 'Fade room two' && renamed.transition_seconds === 0, 'the older call shape (no transition argument) still works and keeps the setting');
+await rpc(G, 'update_room_settings', [fadeRoom.room_id, null, null, null, null, null, 4]);
+ok((await state(G, fadeRoom.room_id)).room.transition_seconds === 4, 'and it can be turned back on');
+await rejects(as(G, 'update public.rooms set transition_seconds = 2 where id = $1', [fadeRoom.room_id]), 'permission denied', 'direct UPDATE of the setting is denied, even for the host');
+await rejects(db.query('update public.rooms set transition_seconds = 9 where id = $1', [fadeRoom.room_id]), 'rooms_transition_seconds_check', 'the column itself refuses values outside 0-8');
+await rejects(as(null, `select public.update_room_settings($1, null, null, null, null, null, 2)`, [fadeRoom.room_id]), 'permission denied', 'signed-out (anon) role cannot call update_room_settings');
+
+// set_playback only moves the timeline of the record it was measured on.
+const fadeOne = await rpc(G, 'request_track', [fadeRoom.room_id, 'youtube', VIDEO[0], 'Fade One']);
+const fadeTwo = await rpc(G, 'request_track', [fadeRoom.room_id, 'youtube', VIDEO[1], 'Fade Two']);
+await rpc(G, 'set_playback', [fadeRoom.room_id, 'playing', 0]);
+let fr = (await state(G, fadeRoom.room_id)).room;
+ok(fr.current_item_id === fadeOne.item_id, 'play on an empty turntable still starts the first record');
+await rpc(G, 'set_playback', [fadeRoom.room_id, 'playing', 42, fadeOne.item_id]);
+fr = (await state(G, fadeRoom.room_id)).room;
+ok(fr.playback_position === 42, 'a re-anchor that names the current record is applied');
+await rpc(G, 'play_next', [fadeRoom.room_id, fadeOne.item_id]);
+await rpc(G, 'set_playback', [fadeRoom.room_id, 'playing', 180, fadeOne.item_id]);
+fr = (await state(G, fadeRoom.room_id)).room;
+ok(fr.current_item_id === fadeTwo.item_id && fr.playback_position === 0 && fr.playback_status === 'playing', 'a late re-anchor measured on the previous record does not touch the new one');
+await rpc(G, 'set_playback', [fadeRoom.room_id, 'paused', 7, fadeOne.item_id]);
+ok((await state(G, fadeRoom.room_id)).room.playback_status === 'playing', 'nor does a late pause');
+await rpc(G, 'set_playback', [fadeRoom.room_id, 'paused', 7]);
+fr = (await state(G, fadeRoom.room_id)).room;
+ok(fr.playback_status === 'paused' && fr.playback_position === 7, 'the older call shape (no expected record) still works');
+await rejects(rpc(H, 'set_playback', [fadeRoom.room_id, 'playing', 1, fadeTwo.item_id]), 'VR_NOT_HOST', 'guest still cannot set playback');
+await rejects(rpc(G, 'set_playback', [fadeRoom.room_id, 'spinning', 1, fadeTwo.item_id]), 'VR_INVALID_INPUT', 'an unknown status is still rejected');
+await rejects(as(null, `select public.set_playback($1, 'playing', 0, null)`, [fadeRoom.room_id]), 'permission denied', 'signed-out (anon) role cannot call set_playback');
+await rpc(G, 'close_room', [fadeRoom.room_id]);
+
 console.log('\nserver clock');
 const before = Date.now();
 const pong = await rpc(B, 'server_time');
