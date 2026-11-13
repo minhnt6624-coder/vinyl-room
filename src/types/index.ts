@@ -53,6 +53,8 @@ export interface Room {
   playback_status: PlaybackStatus;
   playback_position: number;
   playback_started_at: string | null;
+  /** Seconds of fade between records, 0-8. Missing on a database that has not had the migration: treated as 0. */
+  transition_seconds?: number;
   created_at: string;
   updated_at: string;
 }
@@ -102,6 +104,7 @@ export interface RoomSettingsPatch {
   request_mode?: RequestMode;
   allow_requests?: boolean;
   allow_duplicates?: boolean;
+  transition_seconds?: number;
 }
 
 /** Everything the room UI can ask for. Implemented against Supabase RPCs. */

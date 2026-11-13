@@ -72,6 +72,27 @@ To measure sync yourself: open the room in two browser profiles and on a phone o
 
 If the browser blocks autoplay, the listener sees a **Join listening** button. Known limit: the queue advances from the host's browser. If the host closes their tab, the current record finishes for everyone, but the next one does not start until the host is back.
 
+### Smooth transitions
+
+The host chooses a fade length of 0 to 8 seconds in **About room** (`rooms.transition_seconds`, default 3). 0 keeps records changing with no fade.
+
+There is one YouTube player on the page, always visible, and two tracks never play at once: YouTube's terms rule out a real crossfade. Instead the current record fades out, the room moves on, and the next record fades in.
+
+- **Fade-out** is a function of the room's shared timeline (`expectedPosition`) and the track's stored length, not of any event in one browser, so every listener's volume goes down at the same moment. It ends one second before the stored end, because a stored length is a whole number and can be longer than the video.
+- **The change:** when the fade-out reaches silence the host's browser calls `play_next` with the record it expects to be current, so a second call does nothing.
+- **Fade-in** starts when this browser's player is actually playing the new record. The drift policy makes no corrections until it is over.
+- The curve is equal-power (cos out, sin in) and ends at the listener's own volume, never at 100.
+
+No fade-out happens for a track shorter than two fades plus five seconds, for the last record in the queue, for Spotify and SoundCloud embeds, or when the host presses next, previous or picks a record. A manual next still fades in for one second. A browser that cannot set the volume (iOS and iPadOS) changes records without fading.
+
+The gain is recomputed from the clock many times a second and never stored, so a listener cannot be left at zero: if the host's tab closes during a fade, the volume returns 2.5 seconds after the fade ends.
+
+About 20 seconds before a record ends, every browser downloads the next record's cover, and the host makes sure the next record has a stored length.
+
+`set_playback` takes the record a position was measured on (`p_expected_current`) and ignores the call if the room has moved on. Without it a host re-anchor sent just before a change could land on the next record.
+
+If the migration has not been applied, the room row has no `transition_seconds`: records change with no fade, and the slider is not shown.
+
 ### Music providers
 
 Adapters implement `search`, `getTrackDetails`, `getEmbedUrl`, `getArtwork`, `getDuration` and `validateUrl` ([src/services/providers/types.ts](src/services/providers/types.ts)).
@@ -205,7 +226,7 @@ npm run dev                   # http://localhost:5173
 | `npm run typecheck` | TypeScript only |
 | `npm run build` | Typecheck and production build to `dist/` |
 | `npm run preview` | Serve the production build |
-| `npm test` | Unit tests (vitest): server clock, drift policy, LRC parser, lyrics matching, current lyric line and offset |
+| `npm test` | Unit tests (vitest): server clock, drift policy, LRC parser, lyrics matching, current lyric line and offset, transition fade curve |
 | `npm run test:db` | Migration and permission tests, no Supabase needed |
 
 To try it with several people on one machine, use separate browser profiles or a private window per person. Tabs in the same profile share one anonymous session, so they are the same person.

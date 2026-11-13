@@ -27,6 +27,7 @@ Add a row here whenever a file is ported.
 | --- | --- | --- |
 | `src/lib/serverClock.ts` | `core/service/listenTogether/.../ServerClock.kt` (SimpMusic) | Metrolist `ServerClock` |
 | `src/lib/serverClock.test.ts` (first three cases) | `core/service/listenTogether/.../ServerClockTest.kt` (SimpMusic) | Metrolist `ServerClockTest` |
+| `src/lib/transition.ts` (the equal-power fade curve only) | `core/media/media3/.../exoplayer/CrossfadeExoPlayerAdapter.kt` (SimpMusic) | SimpMusic |
 
 ## Ideas taken without porting code
 

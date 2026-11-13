@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { TRANSITION } from '../../lib/transition';
 import { providerList } from '../../services/providers';
 import type { RoomActions, RoomState } from '../../types';
 import { SharePanel } from './SharePanel';
@@ -15,6 +16,43 @@ function Toggle({ label, hint, checked, onChange }: { label: string; hint: strin
         <span className="block h-6 w-11 rounded-full bg-ink/20 transition-colors peer-checked:bg-indigo peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-indigo" />
         <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5" />
       </span>
+    </label>
+  );
+}
+
+/** A 0-8 second slider. The value is saved when the handle is released, not on every step. */
+function TransitionSlider({ value, onCommit }: { value: number; onCommit(v: number): void }) {
+  const [draft, setDraft] = useState<number | null>(null);
+  const shown = draft ?? value;
+  // The handle stays where it was let go until the room's own value arrives,
+  // so it does not jump back while the change is being saved.
+  useEffect(() => setDraft(null), [value]);
+  const commit = () => {
+    if (draft === null) return;
+    if (draft === value) setDraft(null);
+    else onCommit(draft);
+  };
+  return (
+    <label className="block border-b border-line py-3.5">
+      <span className="flex items-baseline justify-between gap-4">
+        <span className="text-sm font-medium">Smooth transition</span>
+        <span className="eyebrow tabular-nums text-ink-soft">{shown === 0 ? 'Off' : `${shown}s`}</span>
+      </span>
+      <span className="block text-xs text-ink-soft">One record fades out and the next fades in, for everyone at once. 0 turns it off.</span>
+      <input
+        type="range"
+        className="range mt-2"
+        style={{ '--fill': `${(shown / TRANSITION.maxSeconds) * 100}%` } as CSSProperties}
+        min={0}
+        max={TRANSITION.maxSeconds}
+        step={1}
+        value={shown}
+        aria-valuetext={shown === 0 ? 'Off' : `${shown} seconds`}
+        onChange={(e) => setDraft(Number(e.target.value))}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        onBlur={commit}
+      />
     </label>
   );
 }
@@ -80,6 +118,8 @@ export function AboutRoom({ state, actions }: { state: RoomState; actions: RoomA
           />
           <Toggle label="Allow the same song twice" hint="Off: a song already in the queue can't be added again." checked={room.allow_duplicates} onChange={(v) => actions.updateSettings({ allow_duplicates: v })} />
           <Toggle label="List on the home page" hint="Public rooms can be found without the link." checked={room.visibility === 'public'} onChange={(v) => actions.updateSettings({ visibility: v ? 'public' : 'private' })} />
+          {/* Only where the database has the setting (the migration has been applied). */}
+          {typeof room.transition_seconds === 'number' && <TransitionSlider value={room.transition_seconds} onCommit={(v) => actions.updateSettings({ transition_seconds: v })} />}
         </section>
       )}
 
